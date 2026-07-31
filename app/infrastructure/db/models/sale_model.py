@@ -13,4 +13,5 @@ class SaleModel(Base):
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.id"), nullable=False)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    promotion_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)

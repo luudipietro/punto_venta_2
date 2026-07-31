@@ -66,23 +66,53 @@ Key conventions to follow when adding an entity:
   `BusinessRuleViolationError` from `app/core/exceptions.py`; `app/core/exception_handlers.py`
   (registered in `main.py`) is the only place that maps them to HTTP status codes.
 
-`SaleService` (`app/services/sale_service.py`) is the one non-trivial flow: `create_sale`
-validates the payments total matches subtotal-minus-discount, checks/decrements stock through a
-`StockService` instance built on the same session, then persists the Sale, SaleItems and
-SalePayments — all before the request's `get_db` commits. When creating a `SaleItem`/`SalePayment`
-via its repository, remember to copy the returned `.id` back onto the object you keep a reference
-to (the repository returns a *new* domain instance; it does not mutate the one you passed in).
+`SaleService` (`app/services/sale_service.py`) is the most complex flow: `create_sale` resolves
+each `SaleItem`'s `Stock` -> `Product` to find an applicable `Promotion` (see below), computes
+`promotion_discount`, then validates the payments total matches
+`subtotal - discount - promotion_discount`, checks/decrements stock through a `StockService`
+instance built on the same session, then persists the Sale, SaleItems and SalePayments — all
+before the request's `get_db` commits. When creating a `SaleItem`/`SalePayment` via its
+repository, remember to copy the returned `.id` back onto the object you keep a reference to (the
+repository returns a *new* domain instance; it does not mutate the one you passed in). `Purchase`
+(`app/services/purchase_service.py`) and `Exchange` (`app/services/exchange_service.py`) follow
+the same parent-then-children persistence shape as Sale, and their repositories are append-only
+(`list_all`/`get_by_id`/`create` only — no update/delete), matching the "a Sale is never edited
+after the fact" convention in `sale_repository.py`.
 
 ## Scope
 
-Implemented: Category, Brand, Color, Size, Branch, Product, Stock (with `/increase` and
-`/decrease` quantity-adjustment endpoints), PaymentMethod, and the full Sale/SaleItem/SalePayment
-flow. Purchase, Promotion, and Exchange/Return are part of the original domain model but are not
-implemented yet — when adding them, follow the same per-entity file pattern.
+Fully implemented, following the same per-entity file pattern throughout: Category, Brand, Color,
+Size, Branch, Product, Stock (with `/increase` and `/decrease` quantity-adjustment endpoints),
+PaymentMethod, Sale/SaleItem/SalePayment, Purchase/PurchaseItem, Promotion, and
+Exchange/ExchangeReturnItem/ExchangeNewItem/ExchangePayment. The original domain model is now
+fully covered.
+
+- **Purchase** mirrors Sale but increases stock instead of decreasing it (`PurchaseService.
+  create_purchase` calls `StockService.increase_quantity` per item). `supplier_name` is a
+  free-text field — there is no separate Supplier entity. No PurchasePayment; purchases aren't
+  split by payment method.
+- **Promotion** (`app/domain/promotion.py`) is a catalog entity with `DiscountType.PERCENTAGE` /
+  `FIXED_AMOUNT` that must target exactly one of `product_id` or `category_id` — enforced in
+  `PromotionService.create`/`update` (`BusinessRuleViolationError`), not the Pydantic schema. It's
+  wired into `SaleService.create_sale`: `PromotionService.find_applicable` picks a product-specific
+  promotion over a category-wide one when both match; the resulting `Sale.promotion_discount` is
+  server-computed only (never accepted from `SaleCreate`) and is subtracted from the total
+  alongside the manual `discount`. Overlapping promotions on the same exact target are allowed —
+  `find_applicable` just returns the first match; there's no uniqueness constraint.
+- **Exchange/Return** is one entity covering both flows: `Exchange` + `ExchangeReturnItem`
+  (restocked) + `ExchangeNewItem` (destocked; empty list = a pure return) + `ExchangePayment`
+  (signed `amount` — positive means the customer pays more, negative means a refund).
+  `ExchangeService.create_exchange` validates that returned items were actually part of the
+  original Sale and don't exceed the quantity sold. **Known, deliberately deferred limitation**:
+  it checks against the *original* `SaleItem` quantity only — quantities already returned via a
+  prior Exchange against the same Sale are not subtracted, so the same units could in principle be
+  returned twice across separate Exchange records. Revisit with an aggregate query (or a counter)
+  if this becomes a real risk; it was left out to avoid that complexity/concurrency concern for now.
 
 Domain names are English translations of the original (Spanish) domain model — e.g. `Sucursal` ->
-`Branch`, `Venta` -> `Sale`, `Talle` -> `Size`. There is no separate translation layer; the English
-names are canonical.
+`Branch`, `Venta` -> `Sale`, `Talle` -> `Size`, `Compra` -> `Purchase`, `Promoción` -> `Promotion`,
+`Cambio`/`Devolución` -> `Exchange`. There is no separate translation layer; the English names are
+canonical.
 
 ## Database
 
@@ -92,3 +122,22 @@ changes to point at a different engine (e.g. `mysql+aiomysql://...`); no applica
 need to change. Alembic (`alembic/env.py`) imports every model module explicitly so
 `Base.metadata` is fully populated before autogenerate runs — new model files must be added to
 that import list (and to `tests/conftest.py`, which does the same for the in-memory test schema).
+
+**Pending migrations**: the Purchase, Promotion, and Exchange/Return models above were added
+without Docker/Postgres running on this machine (`docker compose up -d` needs a machine that has
+Docker), so no migration has been generated or applied for them yet. Before relying on these
+tables against a real database, run (in this order — the promotion_discount migration depends on
+the promotions table already existing) on a machine with Docker available:
+
+```bash
+docker compose up -d
+uv run alembic revision --autogenerate -m "add purchase and purchase_item tables"
+uv run alembic revision --autogenerate -m "add promotion table"
+uv run alembic revision --autogenerate -m "add promotion_discount to sales"
+uv run alembic revision --autogenerate -m "add exchange tables"
+uv run alembic upgrade head
+```
+
+Review each autogenerated migration file before applying, as usual. The test suite (`uv run
+pytest`) doesn't need any of this — it builds the schema straight from `Base.metadata` against an
+in-memory SQLite DB and already covers all four new/changed entities.

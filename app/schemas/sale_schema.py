@@ -49,6 +49,7 @@ class SaleRead(BaseModel):
     branch_id: int
     subtotal: Decimal
     discount: Decimal
+    promotion_discount: Decimal
     total: Decimal
 
 

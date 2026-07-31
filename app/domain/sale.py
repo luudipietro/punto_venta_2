@@ -8,4 +8,5 @@ class Sale:
     subtotal: Decimal
     discount: Decimal
     total: Decimal
+    promotion_discount: Decimal = Decimal("0")
     id: int | None = None

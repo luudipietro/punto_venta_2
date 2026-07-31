@@ -35,6 +35,7 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
             branch_id=sale.branch_id,
             subtotal=sale.subtotal,
             discount=sale.discount,
+            promotion_discount=sale.promotion_discount,
             total=sale.total,
         )
         self._session.add(model)
@@ -48,5 +49,6 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
             branch_id=model.branch_id,
             subtotal=model.subtotal,
             discount=model.discount,
+            promotion_discount=model.promotion_discount,
             total=model.total,
         )
