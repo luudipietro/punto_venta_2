@@ -35,6 +35,7 @@ from app.repositories.exchange_return_item_repository import (
 )
 from app.repositories.payment_method_repository import SqlAlchemyPaymentMethodRepository
 from app.repositories.product_repository import SqlAlchemyProductRepository
+from app.repositories.promotion_item_repository import SqlAlchemyPromotionItemRepository
 from app.repositories.promotion_repository import SqlAlchemyPromotionRepository
 from app.repositories.sale_item_repository import SqlAlchemySaleItemRepository
 from app.repositories.sale_payment_repository import SqlAlchemySalePaymentRepository
@@ -92,6 +93,7 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
         SqlAlchemyProductRepository(session),
         PromotionService(
             SqlAlchemyPromotionRepository(session),
+            SqlAlchemyPromotionItemRepository(session),
             SqlAlchemyProductRepository(session),
             SqlAlchemyCategoryRepository(session),
         ),

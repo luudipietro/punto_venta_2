@@ -30,6 +30,7 @@ class SqlAlchemySaleItemRepository(SqlAlchemyRepository[SaleItemModel], SaleItem
             stock_id=sale_item.stock_id,
             quantity=sale_item.quantity,
             unit_price=sale_item.unit_price,
+            promotion_id=sale_item.promotion_id,
         )
         self._session.add(model)
         await self._session.flush()
@@ -43,4 +44,5 @@ class SqlAlchemySaleItemRepository(SqlAlchemyRepository[SaleItemModel], SaleItem
             stock_id=model.stock_id,
             quantity=model.quantity,
             unit_price=model.unit_price,
+            promotion_id=model.promotion_id,
         )

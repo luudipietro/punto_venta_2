@@ -21,6 +21,7 @@ from app.infrastructure.db.models import (  # noqa: F401
     exchange_return_item_model,
     payment_method_model,
     product_model,
+    promotion_item_model,
     promotion_model,
     purchase_item_model,
     purchase_model,

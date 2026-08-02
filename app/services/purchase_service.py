@@ -3,7 +3,7 @@ from decimal import Decimal
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import EntityNotFoundError
+from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from app.domain.purchase import Purchase
 from app.domain.purchase_item import PurchaseItem
 from app.infrastructure.db.session import get_db
@@ -53,6 +53,13 @@ class PurchaseService:
         supplier_name: str | None,
         items: list[PurchaseItem],
     ) -> Purchase:
+        for item in items:
+            stock = await self._stock_service.get_by_id(item.stock_id)
+            if stock.branch_id != branch_id:
+                raise BusinessRuleViolationError(
+                    f"Stock {item.stock_id} belongs to branch {stock.branch_id}, not {branch_id}"
+                )
+
         subtotal = sum((item.unit_cost * item.quantity for item in items), Decimal("0"))
         total = subtotal
 

@@ -3,8 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class StockBase(BaseModel):
     product_id: int
-    color_id: int
-    size_id: int
+    color_id: int | None = None
+    size_id: int | None = None
     branch_id: int
     quantity: int = Field(ge=0)
 

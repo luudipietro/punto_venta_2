@@ -18,6 +18,7 @@ class SalePaymentInput(BaseModel):
 class SaleCreate(BaseModel):
     branch_id: int
     discount: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_reason: str | None = None
     items: list[SaleItemInput] = Field(min_length=1)
     payments: list[SalePaymentInput] = Field(min_length=1)
 
@@ -30,6 +31,7 @@ class SaleItemRead(BaseModel):
     stock_id: int
     quantity: int
     unit_price: Decimal
+    promotion_id: int | None = None
 
 
 class SalePaymentRead(BaseModel):
@@ -50,6 +52,7 @@ class SaleRead(BaseModel):
     subtotal: Decimal
     discount: Decimal
     promotion_discount: Decimal
+    discount_reason: str | None = None
     total: Decimal
 
 

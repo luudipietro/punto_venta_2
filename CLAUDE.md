@@ -67,8 +67,11 @@ Key conventions to follow when adding an entity:
   (registered in `main.py`) is the only place that maps them to HTTP status codes.
 
 `SaleService` (`app/services/sale_service.py`) is the most complex flow: `create_sale` resolves
-each `SaleItem`'s `Stock` -> `Product` to find an applicable `Promotion` (see below), computes
-`promotion_discount`, then validates the payments total matches
+each `SaleItem`'s `Stock` -> `Product` into per-product cart totals (`cart_quantities`,
+`cart_categories`, `cart_unit_prices`, `cart_item_index`), asks
+`PromotionService.select_winning_applications` (see below) which promotions win, distributes each
+winning `PromotionApplication` onto the matching `SaleItem`s (setting `SaleItem.promotion_id`) and
+sums `promotion_discount`, then validates the payments total matches
 `subtotal - discount - promotion_discount`, checks/decrements stock through a `StockService`
 instance built on the same session, then persists the Sale, SaleItems and SalePayments — all
 before the request's `get_db` commits. When creating a `SaleItem`/`SalePayment` via its
@@ -77,7 +80,10 @@ repository returns a *new* domain instance; it does not mutate the one you passe
 (`app/services/purchase_service.py`) and `Exchange` (`app/services/exchange_service.py`) follow
 the same parent-then-children persistence shape as Sale, and their repositories are append-only
 (`list_all`/`get_by_id`/`create` only — no update/delete), matching the "a Sale is never edited
-after the fact" convention in `sale_repository.py`.
+after the fact" convention in `sale_repository.py`. `PurchaseService.create_purchase` also
+validates upfront that every item's `Stock.branch_id` matches the purchase's own `branch_id`
+(`BusinessRuleViolationError` otherwise) — stock is always identified by `stock_id`, not
+`branch_id`, so nothing else in the codebase catches a mismatched branch for you.
 
 ## Scope
 
@@ -91,14 +97,37 @@ fully covered.
   create_purchase` calls `StockService.increase_quantity` per item). `supplier_name` is a
   free-text field — there is no separate Supplier entity. No PurchasePayment; purchases aren't
   split by payment method.
-- **Promotion** (`app/domain/promotion.py`) is a catalog entity with `DiscountType.PERCENTAGE` /
-  `FIXED_AMOUNT` that must target exactly one of `product_id` or `category_id` — enforced in
-  `PromotionService.create`/`update` (`BusinessRuleViolationError`), not the Pydantic schema. It's
-  wired into `SaleService.create_sale`: `PromotionService.find_applicable` picks a product-specific
-  promotion over a category-wide one when both match; the resulting `Sale.promotion_discount` is
+- **Stock** (`app/domain/stock.py`) has optional `color_id`/`size_id` — a product with no color or
+  size variety can have a `Stock` row with both set to `None`. The `uq_stock_variant` unique
+  constraint on `(product_id, color_id, size_id, branch_id)` does not dedupe rows where
+  color/size are both `NULL` (Postgres treats `NULL <> NULL`), which is accepted as-is.
+- **Promotion** (`app/domain/promotion.py` + `app/domain/promotion_item.py`) is a parent/children
+  entity, not a flat row: `Promotion` only holds `name`/`start_date`/`end_date`/`active`, and every
+  condition/effect lives on one or more `PromotionItem` lines (`promotion_items` table), each
+  targeting exactly one of `product_id`/`category_id` (enforced in `PromotionService._validate_items`,
+  `BusinessRuleViolationError`, not the Pydantic schema) with its own `DiscountType.PERCENTAGE` /
+  `FIXED_AMOUNT`, `discount_value`, `min_quantity` (trigger threshold — how many of the target must
+  be in the cart) and `max_quantity` (discount cap — `None` means discount the full matched cart
+  quantity). A promotion with one line is a simple "X% off product/category" discount; a promotion
+  with 2+ lines is a combo/gift (e.g. a "buy 1 shirt, get 1 pair of socks free" gift is a 2-line
+  promotion: a 0%-discount shirt line and a 100%-discount, `max_quantity=1` socks line, so extra
+  pairs of socks in the cart stay full price). `PromotionService.create`/`update` persist the
+  parent then each child (copying `.id` back), same pattern as `SaleService`/`PurchaseService`;
+  `update` fully replaces a promotion's items (`delete_by_promotion` + recreate) rather than
+  patching individual lines.
+
+  It's wired into `SaleService.create_sale` via `PromotionService.select_winning_applications`,
+  which replaced the old single-promotion `find_applicable`: it finds every active promotion whose
+  lines are fully satisfied by the cart (a `category_id` line matches the first cart product in
+  that category, in cart order, with enough remaining quantity), clusters competing promotions by
+  shared matched products (union-find), and within each cluster picks the promotion with the
+  **greatest total discount amount** (not percentage — ties broken by lowest `promotion.id`).
+  Promotions in disjoint clusters (no shared product) all win and stack simultaneously. Each
+  winning line's discount is written onto the covering `SaleItem`(s)' `promotion_id`; items not
+  covered by any winner keep `promotion_id = None`. The resulting `Sale.promotion_discount` is
   server-computed only (never accepted from `SaleCreate`) and is subtracted from the total
-  alongside the manual `discount`. Overlapping promotions on the same exact target are allowed —
-  `find_applicable` just returns the first match; there's no uniqueness constraint.
+  alongside the manual `discount` (which can now carry an optional `discount_reason` string, e.g.
+  "cliente frecuente" — also server-trusted, just persisted as-is).
 - **Exchange/Return** is one entity covering both flows: `Exchange` + `ExchangeReturnItem`
   (restocked) + `ExchangeNewItem` (destocked; empty list = a pure return) + `ExchangePayment`
   (signed `amount` — positive means the customer pays more, negative means a refund).
@@ -129,3 +158,15 @@ applied to the local Postgres instance. Note: the autogenerated `promotion_disco
 be patched with a temporary `server_default='0'` (removed right after via `alter_column`) so the
 `NOT NULL` add-column step wouldn't fail against existing `sales` rows — always review autogenerated
 migrations for this kind of issue (new NOT NULL column + existing rows) before applying.
+
+Two more migrations, also applied: `eb9386a495b1` (nullable `stocks.color_id`/`size_id`, new
+nullable `sales.discount_reason` and `sale_items.promotion_id` columns — no backfill needed since
+all three are nullable) and `5b39eed395fb` (new `promotion_items` table; drops
+`product_id`/`category_id`/`discount_type`/`discount_value` from `promotions` in favor of
+`promotion_items` rows — any previously-created promotions lost that data, accepted since this is
+a local dev database). Note: the autogenerated `promotion_items.discount_type` column reuses the
+`discounttype` Postgres enum already created for the old `promotions.discount_type` column, so the
+generated `sa.Enum(...)` / `postgresql.ENUM(...)` calls in that migration need `create_type=False`
+(both in `upgrade()`'s `create_table` and `downgrade()`'s `add_column`) — otherwise Postgres raises
+`DuplicateObjectError: type "discounttype" already exists`. Watch for this whenever a migration
+reuses an existing enum type name in a new column.

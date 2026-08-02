@@ -12,7 +12,7 @@ class StockModel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
-    color_id: Mapped[int] = mapped_column(ForeignKey("colors.id"), nullable=False)
-    size_id: Mapped[int] = mapped_column(ForeignKey("sizes.id"), nullable=False)
+    color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
+    size_id: Mapped[int | None] = mapped_column(ForeignKey("sizes.id"), nullable=True)
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

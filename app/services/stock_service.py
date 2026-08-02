@@ -52,10 +52,12 @@ class StockService(CrudService[Stock]):
     async def _ensure_references_exist(self, stock: Stock) -> None:
         if await self._product_repository.get_by_id(stock.product_id) is None:
             raise EntityNotFoundError("Product", stock.product_id)
-        if await self._color_repository.get_by_id(stock.color_id) is None:
-            raise EntityNotFoundError("Color", stock.color_id)
-        if await self._size_repository.get_by_id(stock.size_id) is None:
-            raise EntityNotFoundError("Size", stock.size_id)
+        if stock.color_id is not None:
+            if await self._color_repository.get_by_id(stock.color_id) is None:
+                raise EntityNotFoundError("Color", stock.color_id)
+        if stock.size_id is not None:
+            if await self._size_repository.get_by_id(stock.size_id) is None:
+                raise EntityNotFoundError("Size", stock.size_id)
         if await self._branch_repository.get_by_id(stock.branch_id) is None:
             raise EntityNotFoundError("Branch", stock.branch_id)
 

@@ -14,3 +14,4 @@ class SaleItemModel(Base):
     stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    promotion_id: Mapped[int | None] = mapped_column(ForeignKey("promotions.id"), nullable=True)

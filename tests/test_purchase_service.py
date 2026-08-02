@@ -1,7 +1,9 @@
 from decimal import Decimal
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BusinessRuleViolationError
 from app.domain.branch import Branch
 from app.domain.brand import Brand
 from app.domain.category import Category
@@ -97,3 +99,22 @@ async def test_create_purchase_with_multiple_items_sums_subtotal(db_session: Asy
     updated_stock = await SqlAlchemyStockRepository(db_session).get_by_id(stock.id)
     assert updated_stock is not None
     assert updated_stock.quantity == 3
+
+
+async def test_create_purchase_rejects_stock_from_a_different_branch(
+    db_session: AsyncSession,
+) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    other_branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Sucursal 2"))
+    service = _build_purchase_service(db_session)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.create_purchase(
+            branch_id=other_branch.id,
+            supplier_name=None,
+            items=[PurchaseItem(stock_id=stock.id, quantity=3, unit_cost=Decimal("10.00"))],
+        )
+
+    unchanged_stock = await SqlAlchemyStockRepository(db_session).get_by_id(stock.id)
+    assert unchanged_stock is not None
+    assert unchanged_stock.quantity == 5

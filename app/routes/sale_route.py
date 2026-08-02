@@ -34,6 +34,7 @@ async def get_sale(
         sale.subtotal,
         sale.discount,
         sale.promotion_discount,
+        sale.discount_reason,
         sale.total,
         items,
         payments,
@@ -56,13 +57,20 @@ async def create_sale(
         )
         for payment in payload.payments
     ]
-    sale = await service.create_sale(payload.branch_id, payload.discount, items, payments)
+    sale = await service.create_sale(
+        payload.branch_id,
+        payload.discount,
+        items,
+        payments,
+        discount_reason=payload.discount_reason,
+    )
     return _to_detail_read(
         sale.id,
         sale.branch_id,
         sale.subtotal,
         sale.discount,
         sale.promotion_discount,
+        sale.discount_reason,
         sale.total,
         items,
         payments,
@@ -75,6 +83,7 @@ def _to_detail_read(
     subtotal: Decimal,
     discount: Decimal,
     promotion_discount: Decimal,
+    discount_reason: str | None,
     total: Decimal,
     items: list[SaleItem],
     payments: list[SalePayment],
@@ -85,6 +94,7 @@ def _to_detail_read(
         subtotal=subtotal,
         discount=discount,
         promotion_discount=promotion_discount,
+        discount_reason=discount_reason,
         total=total,
         items=[SaleItemRead.model_validate(item) for item in items],
         payments=[SalePaymentRead.model_validate(payment) for payment in payments],
