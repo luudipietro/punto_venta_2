@@ -170,3 +170,36 @@ generated `sa.Enum(...)` / `postgresql.ENUM(...)` calls in that migration need `
 (both in `upgrade()`'s `create_table` and `downgrade()`'s `add_column`) — otherwise Postgres raises
 `DuplicateObjectError: type "discounttype" already exists`. Watch for this whenever a migration
 reuses an existing enum type name in a new column.
+
+## Known limitations / possible next steps
+
+Raised during manual Postman/pgAdmin testing of the flows above; deliberately deferred, not bugs:
+
+- **No promotion usage cap**: a `PromotionItem` has no "max N uses" or "once per customer" concept
+  — a combo can be applied to every qualifying sale indefinitely while `active`/date-range allow it.
+- **No quantity-tier promotions** ("3x2", "2nd unit 50% off"): `min_quantity`/`max_quantity` express
+  a fixed trigger/cap per line, not a repeating multiplier — buying 6 of a "3x2" product today just
+  triggers the line once (if it's the cluster winner), it doesn't apply twice.
+- **No stock transfer between branches**: `StockService` only has `increase_quantity`/
+  `decrease_quantity`; moving stock from one branch's row to another's is two manual calls today,
+  with no atomic "transfer" operation or audit trail of the move.
+- **Exchange doesn't touch promotions**: `ExchangeService.create_exchange` computes return/new-item
+  amounts from `unit_price * quantity` only (`app/services/exchange_service.py`) — it doesn't look
+  at the original `SaleItem.promotion_id` or reverse/prorate a `Sale.promotion_discount` on a
+  return. Returning an item that was sold at a promotional price currently refunds it at full
+  `unit_price` unless the caller passes a lower price manually.
+- **Purchase doesn't update a reference cost**: `PurchaseService.create_purchase` records
+  `unit_cost` per `PurchaseItem` but never writes back to `Product` (there's no "current cost"
+  field on `Product` to update) — margin reporting would need to derive cost from purchase history
+  itself, there's no shortcut field.
+- **Category-line promotions pick one product only**: a `PromotionItem` with `category_id` set
+  matches the *first* cart product in that category (in cart-item order) — if a category-wide combo
+  line should apply per-product across every matching item in the cart instead of just one, that's
+  a deliberate simplification from the original design discussion, not yet revisited.
+- **No pessimistic locking on stock**: concurrent sales decrementing the same `Stock` row rely on
+  the DB transaction alone; there's no explicit `SELECT ... FOR UPDATE` or optimistic version column,
+  so a race between two simultaneous sales against the same low-stock row is possible in principle.
+
+None of these are scheduled — flag them to the user before picking one up, since each implies a
+design decision (e.g. how usage caps should be scoped, whether category combos should be
+per-product) similar to the ones resolved for the Promotion redesign above.

@@ -5,7 +5,10 @@
       "Bash(uv add *)",
       "Bash(cd \"/d/claude_code/punto_venta\" && rm main.py && cat pyproject.toml)",
       "Bash(uv run *)",
-      "Bash(powershell -Command \"Start-Process 'C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe'\")"
+      "Bash(powershell -Command \"Start-Process 'C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe'\")",
+      "Bash(docker compose *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
