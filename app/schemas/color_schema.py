@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict
 
 class ColorBase(BaseModel):
     name: str
+    hex_code: str = "#000000"
 
 
 class ColorCreate(ColorBase):

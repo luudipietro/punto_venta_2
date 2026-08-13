@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import Depends
@@ -70,14 +70,18 @@ class SaleService:
     async def get_payments(self, sale_id: int) -> list[SalePayment]:
         return await self._sale_payment_repository.list_by_sale(sale_id)
 
-    async def create_sale(
+    async def compute_totals(
         self,
         branch_id: int,
         discount: Decimal,
         items: list[SaleItem],
-        payments: list[SalePayment],
         discount_reason: str | None = None,
     ) -> Sale:
+        """Resolves cart items to their products, applies winning promotions, and
+        returns an unsaved Sale with subtotal/promotion_discount/total computed.
+        Mutates each item's `promotion_id` in place to reflect which promotion
+        (if any) covers it. Does not touch stock or the database — shared by
+        `create_sale` and the read-only preview flow."""
         subtotal = sum((item.unit_price * item.quantity for item in items), Decimal("0"))
 
         cart_quantities: dict[int, int] = {}
@@ -115,26 +119,36 @@ class SaleService:
         if total < 0:
             raise BusinessRuleViolationError("Discount cannot exceed the sale subtotal")
 
+        return Sale(
+            branch_id=branch_id,
+            subtotal=subtotal,
+            discount=discount,
+            promotion_discount=promotion_discount,
+            discount_reason=discount_reason,
+            total=total,
+        )
+
+    async def create_sale(
+        self,
+        branch_id: int,
+        discount: Decimal,
+        items: list[SaleItem],
+        payments: list[SalePayment],
+        discount_reason: str | None = None,
+    ) -> Sale:
+        computed = await self.compute_totals(branch_id, discount, items, discount_reason)
+
         paid_total = sum((payment.amount_with_surcharge for payment in payments), Decimal("0"))
-        if paid_total != total:
+        if paid_total != computed.total:
             raise BusinessRuleViolationError(
-                f"Payments total ({paid_total}) does not match the sale total ({total})"
+                f"Payments total ({paid_total}) does not match the sale total ({computed.total})"
             )
 
         for payment in payments:
             if await self._payment_method_repository.get_by_id(payment.payment_method_id) is None:
                 raise EntityNotFoundError("PaymentMethod", payment.payment_method_id)
 
-        sale = await self._sale_repository.create(
-            Sale(
-                branch_id=branch_id,
-                subtotal=subtotal,
-                discount=discount,
-                promotion_discount=promotion_discount,
-                discount_reason=discount_reason,
-                total=total,
-            )
-        )
+        sale = await self._sale_repository.create(computed)
 
         for item in items:
             await self._stock_service.decrease_quantity(item.stock_id, item.quantity)
@@ -148,6 +162,23 @@ class SaleService:
             payment.id = created_payment.id
 
         return sale
+
+    async def cancel_sale(self, sale_id: int) -> Sale:
+        """Cancels a sale in place of editing it: restores the stock each
+        SaleItem decremented, then marks the sale cancelled. A cancelled sale
+        stays visible in history for the record, but no longer counts toward
+        cash balances (see ReportService) and can't be cancelled again."""
+        sale = await self.get_by_id(sale_id)
+        if sale.cancelled_at is not None:
+            raise BusinessRuleViolationError(f"Sale {sale_id} is already cancelled")
+
+        items = await self._sale_item_repository.list_by_sale(sale_id)
+        for item in items:
+            await self._stock_service.increase_quantity(item.stock_id, item.quantity)
+
+        return await self._sale_repository.mark_cancelled(
+            sale_id, datetime.now(UTC).replace(tzinfo=None)
+        )
 
 
 def get_sale_service(session: AsyncSession = Depends(get_db)) -> SaleService:

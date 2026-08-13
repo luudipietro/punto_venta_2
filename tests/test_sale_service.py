@@ -159,6 +159,59 @@ async def test_create_sale_decrements_stock(db_session: AsyncSession) -> None:
     assert updated_stock.quantity == 3
 
 
+async def test_cancel_sale_restores_stock_and_marks_cancelled(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=2, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("40.00"),
+                amount_with_surcharge=Decimal("40.00"),
+            )
+        ],
+    )
+
+    cancelled = await service.cancel_sale(sale.id)
+
+    assert cancelled.cancelled_at is not None
+    updated_stock = await SqlAlchemyStockRepository(db_session).get_by_id(stock.id)
+    assert updated_stock is not None
+    assert updated_stock.quantity == 5
+
+
+async def test_cancel_already_cancelled_sale_raises(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("20.00"),
+                amount_with_surcharge=Decimal("20.00"),
+            )
+        ],
+    )
+    await service.cancel_sale(sale.id)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.cancel_sale(sale.id)
+
+
 async def test_create_sale_with_insufficient_stock_raises(db_session: AsyncSession) -> None:
     stock = await _seed_stock(db_session, quantity=1)
     payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
@@ -179,6 +232,40 @@ async def test_create_sale_with_insufficient_stock_raises(db_session: AsyncSessi
                 )
             ],
         )
+
+
+async def test_compute_totals_does_not_persist_or_touch_stock(db_session: AsyncSession) -> None:
+    stock, product = await _seed_stock_with_product(db_session, quantity=5)
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+    promotion = await promotion_service.create(
+        Promotion(name="10% Remeras", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product.id,
+            )
+        ],
+    )
+    service = _build_sale_service(db_session)
+    item = SaleItem(stock_id=stock.id, quantity=2, unit_price=Decimal("20.00"))
+
+    computed = await service.compute_totals(
+        branch_id=stock.branch_id, discount=Decimal("0"), items=[item]
+    )
+
+    assert computed.id is None
+    assert computed.promotion_discount == Decimal("4.00")
+    assert computed.total == Decimal("36.00")
+    assert item.promotion_id == promotion.id
+
+    all_sales = await service.list_all()
+    assert all_sales == []
+    updated_stock = await SqlAlchemyStockRepository(db_session).get_by_id(stock.id)
+    assert updated_stock is not None
+    assert updated_stock.quantity == 5
 
 
 async def test_create_sale_applies_percentage_promotion(db_session: AsyncSession) -> None:

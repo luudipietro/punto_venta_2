@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 
@@ -11,3 +12,5 @@ class Sale:
     promotion_discount: Decimal = Decimal("0")
     discount_reason: str | None = None
     id: int | None = None
+    created_at: datetime | None = None
+    cancelled_at: datetime | None = None

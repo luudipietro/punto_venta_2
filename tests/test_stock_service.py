@@ -3,11 +3,13 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import EntityNotFoundError
+from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from app.domain.branch import Branch
 from app.domain.brand import Brand
 from app.domain.category import Category
+from app.domain.color import Color
 from app.domain.product import Product
+from app.domain.size import Size
 from app.domain.stock import Stock
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.brand_repository import SqlAlchemyBrandRepository
@@ -71,6 +73,39 @@ async def test_create_stock_with_unknown_color_raises(db_session: AsyncSession) 
                 quantity=5,
                 color_id=999,
                 size_id=None,
+            )
+        )
+
+
+async def test_create_duplicate_stock_variant_raises_business_rule_error(
+    db_session: AsyncSession,
+) -> None:
+    # uq_stock_variant only collides when color_id AND size_id are both set —
+    # SQL treats any NULL column in a composite unique constraint as making
+    # the row incomparable (see CLAUDE.md's NULL <> NULL note), so this test
+    # needs a real color and size to exercise the constraint.
+    product, branch = await _seed_product_and_branch(db_session)
+    color = await SqlAlchemyColorRepository(db_session).create(Color(name="Negro"))
+    size = await SqlAlchemySizeRepository(db_session).create(Size(label="M"))
+    service = _build_stock_service(db_session)
+    await service.create(
+        Stock(
+            product_id=product.id,
+            branch_id=branch.id,
+            quantity=5,
+            color_id=color.id,
+            size_id=size.id,
+        )
+    )
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.create(
+            Stock(
+                product_id=product.id,
+                branch_id=branch.id,
+                quantity=1,
+                color_id=color.id,
+                size_id=size.id,
             )
         )
 

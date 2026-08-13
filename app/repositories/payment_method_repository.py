@@ -38,6 +38,7 @@ class SqlAlchemyPaymentMethodRepository(
         model = PaymentMethodModel(
             name=payment_method.name,
             surcharge_percentage=payment_method.surcharge_percentage,
+            is_cash=payment_method.is_cash,
         )
         self._session.add(model)
         await self._session.flush()
@@ -47,6 +48,7 @@ class SqlAlchemyPaymentMethodRepository(
         model = await self._get_model(payment_method.id)
         model.name = payment_method.name
         model.surcharge_percentage = payment_method.surcharge_percentage
+        model.is_cash = payment_method.is_cash
         await self._session.flush()
         return self._to_domain(model)
 
@@ -61,4 +63,5 @@ class SqlAlchemyPaymentMethodRepository(
             id=model.id,
             name=model.name,
             surcharge_percentage=model.surcharge_percentage,
+            is_cash=model.is_cash,
         )

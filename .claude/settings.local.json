@@ -8,7 +8,16 @@
       "Bash(powershell -Command \"Start-Process 'C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe'\")",
       "Bash(docker compose *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(tasklist //FI \"IMAGENAME eq python.exe\")",
+      "Bash(taskkill //F //PID 26872 //T)",
+      "Bash(taskkill //F //PID 19812 //T)",
+      "Bash(taskkill //F //PID 16388 //T)",
+      "Bash(curl -s http://localhost:8000/stocks)",
+      "Bash(python -c \"import json,sys; [print\\(s\\) for s in json.load\\(sys.stdin\\) if s['product_id']==1]\")",
+      "Read(//d/claude_code/**)"
     ]
   }
 }

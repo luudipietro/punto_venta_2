@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from app.domain.sale import Sale
 from app.infrastructure.db.models.sale_model import SaleModel
@@ -19,6 +20,12 @@ class SaleRepository(ABC):
     @abstractmethod
     async def create(self, sale: Sale) -> Sale: ...
 
+    @abstractmethod
+    async def mark_cancelled(self, sale_id: int, cancelled_at: datetime) -> Sale:
+        """The one exception to 'a Sale is append-only': cancellation is a
+        state transition, not an edit of the sale's own recorded numbers."""
+        ...
+
 
 class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
     model = SaleModel
@@ -29,6 +36,12 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
     async def get_by_id(self, sale_id: int) -> Sale | None:
         model = await self._get_model(sale_id)
         return self._to_domain(model) if model else None
+
+    async def mark_cancelled(self, sale_id: int, cancelled_at: datetime) -> Sale:
+        model = await self._get_model(sale_id)
+        model.cancelled_at = cancelled_at
+        await self._session.flush()
+        return self._to_domain(model)
 
     async def create(self, sale: Sale) -> Sale:
         model = SaleModel(
@@ -53,4 +66,6 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
             promotion_discount=model.promotion_discount,
             discount_reason=model.discount_reason,
             total=model.total,
+            created_at=model.created_at,
+            cancelled_at=model.cancelled_at,
         )

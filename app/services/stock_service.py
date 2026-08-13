@@ -1,7 +1,12 @@
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import EntityNotFoundError, InsufficientStockError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    InsufficientStockError,
+)
 from app.domain.stock import Stock
 from app.infrastructure.db.session import get_db
 from app.repositories.branch_repository import BranchRepository, SqlAlchemyBranchRepository
@@ -31,7 +36,12 @@ class StockService(CrudService[Stock]):
 
     async def create(self, stock: Stock) -> Stock:
         await self._ensure_references_exist(stock)
-        return await super().create(stock)
+        try:
+            return await super().create(stock)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(
+                "Ya existe un stock para ese producto, color, talle y sucursal"
+            ) from exc
 
     async def update(self, entity_id: int, stock: Stock) -> Stock:
         await self._ensure_references_exist(stock)

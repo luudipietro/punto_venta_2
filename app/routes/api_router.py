@@ -5,6 +5,7 @@ from app.routes.brand_route import router as brand_router
 from app.routes.category_route import router as category_router
 from app.routes.color_route import router as color_router
 from app.routes.exchange_route import router as exchange_router
+from app.routes.expense_route import router as expense_router
 from app.routes.payment_method_route import router as payment_method_router
 from app.routes.product_route import router as product_router
 from app.routes.promotion_route import router as promotion_router
@@ -27,3 +28,4 @@ api_router.include_router(promotion_router)
 api_router.include_router(purchase_router)
 api_router.include_router(sale_router)
 api_router.include_router(exchange_router)
+api_router.include_router(expense_router)

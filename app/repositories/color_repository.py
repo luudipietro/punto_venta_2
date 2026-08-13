@@ -33,7 +33,7 @@ class SqlAlchemyColorRepository(SqlAlchemyRepository[ColorModel], ColorRepositor
         return self._to_domain(model) if model else None
 
     async def create(self, color: Color) -> Color:
-        model = ColorModel(name=color.name)
+        model = ColorModel(name=color.name, hex_code=color.hex_code)
         self._session.add(model)
         await self._session.flush()
         return self._to_domain(model)
@@ -41,6 +41,7 @@ class SqlAlchemyColorRepository(SqlAlchemyRepository[ColorModel], ColorRepositor
     async def update(self, color: Color) -> Color:
         model = await self._get_model(color.id)
         model.name = color.name
+        model.hex_code = color.hex_code
         await self._session.flush()
         return self._to_domain(model)
 
@@ -51,4 +52,4 @@ class SqlAlchemyColorRepository(SqlAlchemyRepository[ColorModel], ColorRepositor
 
     @staticmethod
     def _to_domain(model: ColorModel) -> Color:
-        return Color(id=model.id, name=model.name)
+        return Color(id=model.id, name=model.name, hex_code=model.hex_code)

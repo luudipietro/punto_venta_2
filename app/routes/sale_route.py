@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, status
@@ -7,8 +8,11 @@ from app.domain.sale_payment import SalePayment
 from app.schemas.sale_schema import (
     SaleCreate,
     SaleDetailRead,
+    SaleItemPreviewRead,
     SaleItemRead,
     SalePaymentRead,
+    SalePreviewInput,
+    SalePreviewRead,
     SaleRead,
 )
 from app.services.sale_service import SaleService, get_sale_service
@@ -19,6 +23,39 @@ router = APIRouter(prefix="/sales", tags=["Sales"])
 @router.get("", response_model=list[SaleRead])
 async def list_sales(service: SaleService = Depends(get_sale_service)) -> list[SaleRead]:
     return await service.list_all()
+
+
+@router.post("/preview", response_model=SalePreviewRead)
+async def preview_sale(
+    payload: SalePreviewInput, service: SaleService = Depends(get_sale_service)
+) -> SalePreviewRead:
+    """Computes what a sale's totals (including any applied promotions) would be
+    without persisting anything — lets the frontend show live promo/total feedback
+    as the cart changes, before the employee picks payment methods."""
+    items = [
+        SaleItem(stock_id=item.stock_id, quantity=item.quantity, unit_price=item.unit_price)
+        for item in payload.items
+    ]
+    computed = await service.compute_totals(
+        payload.branch_id, payload.discount, items, discount_reason=payload.discount_reason
+    )
+    return SalePreviewRead(
+        branch_id=computed.branch_id,
+        subtotal=computed.subtotal,
+        discount=computed.discount,
+        promotion_discount=computed.promotion_discount,
+        discount_reason=computed.discount_reason,
+        total=computed.total,
+        items=[
+            SaleItemPreviewRead(
+                stock_id=item.stock_id,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                promotion_id=item.promotion_id,
+            )
+            for item in items
+        ],
+    )
 
 
 @router.get("/{sale_id}", response_model=SaleDetailRead)
@@ -36,8 +73,32 @@ async def get_sale(
         sale.promotion_discount,
         sale.discount_reason,
         sale.total,
+        sale.created_at,
         items,
         payments,
+        sale.cancelled_at,
+    )
+
+
+@router.post("/{sale_id}/cancel", response_model=SaleDetailRead)
+async def cancel_sale(
+    sale_id: int, service: SaleService = Depends(get_sale_service)
+) -> SaleDetailRead:
+    sale = await service.cancel_sale(sale_id)
+    items = await service.get_items(sale_id)
+    payments = await service.get_payments(sale_id)
+    return _to_detail_read(
+        sale.id,
+        sale.branch_id,
+        sale.subtotal,
+        sale.discount,
+        sale.promotion_discount,
+        sale.discount_reason,
+        sale.total,
+        sale.created_at,
+        items,
+        payments,
+        sale.cancelled_at,
     )
 
 
@@ -72,8 +133,10 @@ async def create_sale(
         sale.promotion_discount,
         sale.discount_reason,
         sale.total,
+        sale.created_at,
         items,
         payments,
+        sale.cancelled_at,
     )
 
 
@@ -85,8 +148,10 @@ def _to_detail_read(
     promotion_discount: Decimal,
     discount_reason: str | None,
     total: Decimal,
+    created_at: datetime,
     items: list[SaleItem],
     payments: list[SalePayment],
+    cancelled_at: datetime | None = None,
 ) -> SaleDetailRead:
     return SaleDetailRead(
         id=sale_id,
@@ -96,6 +161,8 @@ def _to_detail_read(
         promotion_discount=promotion_discount,
         discount_reason=discount_reason,
         total=total,
+        created_at=created_at,
+        cancelled_at=cancelled_at,
         items=[SaleItemRead.model_validate(item) for item in items],
         payments=[SalePaymentRead.model_validate(payment) for payment in payments],
     )

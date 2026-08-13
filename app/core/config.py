@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     #   mysql+aiomysql://user:password@localhost:3306/pos
     database_url: str = "postgresql+asyncpg://pos:pos@localhost:5432/pos"
 
+    # Origins allowed to call the API from a browser (the frontend's dev/prod URL).
+    cors_origins: list[str] = ["http://localhost:5173"]
+
 
 @lru_cache
 def get_settings() -> Settings:

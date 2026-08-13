@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -54,8 +55,34 @@ class SaleRead(BaseModel):
     promotion_discount: Decimal
     discount_reason: str | None = None
     total: Decimal
+    created_at: datetime
+    cancelled_at: datetime | None = None
 
 
 class SaleDetailRead(SaleRead):
     items: list[SaleItemRead]
     payments: list[SalePaymentRead]
+
+
+class SalePreviewInput(BaseModel):
+    branch_id: int
+    discount: Decimal = Field(default=Decimal("0"), ge=0)
+    discount_reason: str | None = None
+    items: list[SaleItemInput] = Field(min_length=1)
+
+
+class SaleItemPreviewRead(BaseModel):
+    stock_id: int
+    quantity: int
+    unit_price: Decimal
+    promotion_id: int | None = None
+
+
+class SalePreviewRead(BaseModel):
+    branch_id: int
+    subtotal: Decimal
+    discount: Decimal
+    promotion_discount: Decimal
+    discount_reason: str | None = None
+    total: Decimal
+    items: list[SaleItemPreviewRead]

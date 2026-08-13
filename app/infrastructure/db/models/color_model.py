@@ -9,3 +9,4 @@ class ColorModel(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    hex_code: Mapped[str] = mapped_column(String(7), nullable=False, default="#000000")
