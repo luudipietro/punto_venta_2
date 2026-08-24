@@ -11,6 +11,7 @@ class Sale:
     total: Decimal
     promotion_discount: Decimal = Decimal("0")
     discount_reason: str | None = None
+    customer_id: int | None = None
     id: int | None = None
     created_at: datetime | None = None
     cancelled_at: datetime | None = None

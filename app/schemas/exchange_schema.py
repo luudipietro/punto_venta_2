@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,6 +56,8 @@ class ExchangeRead(BaseModel):
 
     id: int
     sale_id: int
+    branch_id: int
+    created_at: datetime
 
 
 class ExchangeDetailRead(ExchangeRead):

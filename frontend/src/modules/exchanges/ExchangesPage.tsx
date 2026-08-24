@@ -15,6 +15,7 @@ import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { useSale, useSales } from '@/hooks/useSales'
 import { formatCurrency } from '@/lib/format'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
+import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 
 export function ExchangesPage() {
   const { data: exchanges, isLoading } = useExchanges()
@@ -155,8 +156,10 @@ function ExchangeRow({
       <TableCell>{id}</TableCell>
       <TableCell>Venta #{saleId}</TableCell>
       <TableCell>{branchName}</TableCell>
-      <TableCell>{detail?.returned_items.length ?? '-'}</TableCell>
-      <TableCell>{detail?.new_items.length ?? '-'}</TableCell>
+      <TableCell>
+        {detail ? <ExchangeItemsList items={detail.returned_items} /> : '-'}
+      </TableCell>
+      <TableCell>{detail ? <ExchangeItemsList items={detail.new_items} /> : '-'}</TableCell>
     </TableRow>
   )
 }

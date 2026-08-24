@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from sqlalchemy import select
 
 from app.domain.exchange_return_item import ExchangeReturnItem
+from app.infrastructure.db.models.exchange_model import ExchangeModel
 from app.infrastructure.db.models.exchange_return_item_model import ExchangeReturnItemModel
 from app.repositories.base_repository import SqlAlchemyRepository
 
@@ -10,6 +11,13 @@ from app.repositories.base_repository import SqlAlchemyRepository
 class ExchangeReturnItemRepository(ABC):
     @abstractmethod
     async def list_by_exchange(self, exchange_id: int) -> list[ExchangeReturnItem]: ...
+
+    @abstractmethod
+    async def list_by_sale(self, sale_id: int) -> list[ExchangeReturnItem]:
+        """All return items across every Exchange ever created against a
+        given Sale — used to cap how much of a SaleItem can still be
+        returned, accounting for what prior exchanges already returned."""
+        ...
 
     @abstractmethod
     async def create(self, item: ExchangeReturnItem) -> ExchangeReturnItem: ...
@@ -25,6 +33,14 @@ class SqlAlchemyExchangeReturnItemRepository(
             select(ExchangeReturnItemModel).where(
                 ExchangeReturnItemModel.exchange_id == exchange_id
             )
+        )
+        return [self._to_domain(model) for model in result.scalars().all()]
+
+    async def list_by_sale(self, sale_id: int) -> list[ExchangeReturnItem]:
+        result = await self._session.execute(
+            select(ExchangeReturnItemModel)
+            .join(ExchangeModel, ExchangeModel.id == ExchangeReturnItemModel.exchange_id)
+            .where(ExchangeModel.sale_id == sale_id)
         )
         return [self._to_domain(model) for model in result.scalars().all()]
 

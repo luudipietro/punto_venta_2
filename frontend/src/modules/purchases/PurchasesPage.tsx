@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,6 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
+import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreatePurchase, usePurchases } from '@/hooks/usePurchases'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
@@ -26,9 +28,14 @@ interface DraftItem extends PurchaseItemInput {
   key: string
 }
 
+function today(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export function PurchasesPage() {
   const { data: purchases, isLoading } = usePurchases()
   const { data: branches } = useBranches()
+  const { data: paymentMethods } = usePaymentMethods()
   const createMutation = useCreatePurchase()
 
   const [open, setOpen] = useState(false)
@@ -36,6 +43,9 @@ export function PurchasesPage() {
   const [supplierName, setSupplierName] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null)
+  const [isPaid, setIsPaid] = useState(false)
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
+  const [paymentDate, setPaymentDate] = useState(today())
 
   const { options: stockOptions } = useStockOptions(branchId)
 
@@ -43,6 +53,9 @@ export function PurchasesPage() {
     setBranchId(null)
     setSupplierName('')
     setItems([])
+    setIsPaid(false)
+    setPaymentMethodId(null)
+    setPaymentDate(today())
     setOpen(true)
   }
 
@@ -59,7 +72,11 @@ export function PurchasesPage() {
   }
 
   const total = items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0)
-  const canSubmit = branchId !== null && items.length > 0 && items.every((item) => item.stock_id > 0)
+  const canSubmit =
+    branchId !== null &&
+    items.length > 0 &&
+    items.every((item) => item.stock_id > 0) &&
+    (!isPaid || paymentMethodId !== null)
 
   async function handleSubmit() {
     if (branchId === null) return
@@ -68,6 +85,8 @@ export function PurchasesPage() {
         branch_id: branchId,
         supplier_name: supplierName || undefined,
         items: items.map(({ stock_id, quantity, unit_cost }) => ({ stock_id, quantity, unit_cost })),
+        payment_method_id: isPaid ? paymentMethodId : undefined,
+        payment_date: isPaid ? paymentDate : undefined,
       })
       toast.success('Compra registrada')
       setOpen(false)
@@ -178,6 +197,48 @@ export function PurchasesPage() {
                 </div>
 
                 <div className="flex justify-end text-sm font-medium">Total: {formatCurrency(total)}</div>
+
+                <div className="grid gap-2 rounded-md border p-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isPaid}
+                      onChange={(event) => setIsPaid(event.target.checked)}
+                    />
+                    ¿Ya se pagó?
+                  </label>
+                  {isPaid && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-1.5">
+                        <Label>Forma de pago</Label>
+                        <Select
+                          value={paymentMethodId ? String(paymentMethodId) : undefined}
+                          onValueChange={(value) => setPaymentMethodId(Number(value))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Elegir método" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {paymentMethods?.map((pm) => (
+                              <SelectItem key={pm.id} value={String(pm.id)}>
+                                {pm.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="purchase-payment-date">Fecha de pago</Label>
+                        <Input
+                          id="purchase-payment-date"
+                          type="date"
+                          value={paymentDate}
+                          onChange={(event) => setPaymentDate(event.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleSubmit} disabled={!canSubmit || createMutation.isPending}>
@@ -199,6 +260,7 @@ export function PurchasesPage() {
               <TableHead>Sucursal</TableHead>
               <TableHead>Proveedor</TableHead>
               <TableHead>Total</TableHead>
+              <TableHead>Estado</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -217,11 +279,20 @@ export function PurchasesPage() {
                     </TableCell>
                     <TableCell>{purchase.supplier_name ?? '-'}</TableCell>
                     <TableCell className="font-medium">{formatCurrency(purchase.total)}</TableCell>
+                    <TableCell>
+                      {purchase.cancelled_at !== null ? (
+                        <Badge variant="destructive">Cancelada</Badge>
+                      ) : purchase.is_paid ? (
+                        <Badge>Pagada</Badge>
+                      ) : (
+                        <Badge variant="secondary">Pendiente</Badge>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
             ) : (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   Sin compras registradas
                 </TableCell>
               </TableRow>

@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +14,13 @@ class PurchaseCreate(BaseModel):
     branch_id: int
     supplier_name: str | None = None
     items: list[PurchaseItemInput] = Field(min_length=1)
+    payment_method_id: int | None = None
+    payment_date: date | None = None
+
+
+class PurchasePayInput(BaseModel):
+    payment_method_id: int
+    payment_date: date | None = None
 
 
 class PurchaseItemRead(BaseModel):
@@ -33,6 +41,10 @@ class PurchaseRead(BaseModel):
     supplier_name: str | None
     subtotal: Decimal
     total: Decimal
+    payment_method_id: int | None = None
+    payment_date: date | None = None
+    is_paid: bool = False
+    cancelled_at: datetime | None = None
 
 
 class PurchaseDetailRead(PurchaseRead):

@@ -13,6 +13,7 @@ import { ColorsPage } from '@/modules/catalog/ColorsPage'
 import { SizesPage } from '@/modules/catalog/SizesPage'
 import { BranchesPage } from '@/modules/catalog/BranchesPage'
 import { PaymentMethodsPage } from '@/modules/catalog/PaymentMethodsPage'
+import { CustomersPage } from '@/modules/catalog/CustomersPage'
 
 export function AppRoutes() {
   return (
@@ -32,6 +33,7 @@ export function AppRoutes() {
         <Route path="/catalogo/talles" element={<SizesPage />} />
         <Route path="/catalogo/sucursales" element={<BranchesPage />} />
         <Route path="/catalogo/metodos-pago" element={<PaymentMethodsPage />} />
+        <Route path="/catalogo/clientes" element={<CustomersPage />} />
         <Route path="*" element={<Navigate to="/venta" replace />} />
       </Route>
     </Routes>

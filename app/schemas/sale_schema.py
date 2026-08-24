@@ -20,6 +20,7 @@ class SaleCreate(BaseModel):
     branch_id: int
     discount: Decimal = Field(default=Decimal("0"), ge=0)
     discount_reason: str | None = None
+    customer_id: int | None = None
     items: list[SaleItemInput] = Field(min_length=1)
     payments: list[SalePaymentInput] = Field(min_length=1)
 
@@ -57,11 +58,16 @@ class SaleRead(BaseModel):
     total: Decimal
     created_at: datetime
     cancelled_at: datetime | None = None
+    customer_id: int | None = None
 
 
 class SaleDetailRead(SaleRead):
     items: list[SaleItemRead]
     payments: list[SalePaymentRead]
+
+
+class SaleListRead(SaleRead):
+    items_summary: str
 
 
 class SalePreviewInput(BaseModel):

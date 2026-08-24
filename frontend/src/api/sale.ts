@@ -16,6 +16,7 @@ export interface SaleCreate {
   branch_id: number
   discount?: number
   discount_reason?: string | null
+  customer_id?: number | null
   items: SaleItemInput[]
   payments: SalePaymentInput[]
 }
@@ -47,11 +48,16 @@ export interface SaleRead {
   total: number
   created_at: string
   cancelled_at: string | null
+  customer_id: number | null
 }
 
 export interface SaleDetailRead extends SaleRead {
   items: SaleItemRead[]
   payments: SalePaymentRead[]
+}
+
+export interface SaleListRead extends SaleRead {
+  items_summary: string
 }
 
 /** Same input shape as SaleCreate minus `payments` — nothing is charged yet,
@@ -81,7 +87,7 @@ export interface SalePreviewRead {
 }
 
 export const saleApi = {
-  list: () => apiClient.get<SaleRead[]>('/sales'),
+  list: () => apiClient.get<SaleListRead[]>('/sales'),
   getById: (id: number) => apiClient.get<SaleDetailRead>(`/sales/${id}`),
   create: (payload: SaleCreate) => apiClient.post<SaleDetailRead>('/sales', payload),
   preview: (payload: SalePreviewInput) => apiClient.post<SalePreviewRead>('/sales/preview', payload),

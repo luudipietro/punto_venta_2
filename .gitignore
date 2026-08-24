@@ -12,3 +12,6 @@ wheels/
 # Environment variables
 .env
 
+# Locally uploaded media (product images, etc.)
+/media/
+

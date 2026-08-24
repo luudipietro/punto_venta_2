@@ -5,10 +5,10 @@ from decimal import Decimal
 @dataclass(slots=True)
 class Product:
     name: str
-    category_id: int
-    brand_id: int
     cost: Decimal
     price: Decimal
+    category_id: int | None = None
+    brand_id: int | None = None
     description: str | None = None
     image_url: str | None = None
     id: int | None = None

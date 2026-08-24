@@ -12,4 +12,6 @@ class DailyBalance:
     sales_cash_total: Decimal
     sales_total: Decimal
     expenses_cash_total: Decimal
+    purchases_cash_total: Decimal
+    exchanges_cash_total: Decimal
     balance: Decimal

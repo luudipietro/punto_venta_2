@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
@@ -60,6 +60,11 @@ export function PromotionsPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
+  const [targetPriceMode, setTargetPriceMode] = useState(false)
+  const [targetPrice, setTargetPrice] = useState(0)
+  const [distribution, setDistribution] = useState<'percentage' | 'equal'>('percentage')
+
+  const allProductLines = items.length > 0 && items.every((item) => item.targetType === 'product')
 
   function openCreateDialog() {
     setEditingId(null)
@@ -67,6 +72,9 @@ export function PromotionsPage() {
     setStartDate('')
     setEndDate('')
     setItems([emptyItem()])
+    setTargetPriceMode(false)
+    setTargetPrice(0)
+    setDistribution('percentage')
     setOpen(true)
   }
 
@@ -88,6 +96,9 @@ export function PromotionsPage() {
         max_quantity: item.max_quantity ?? undefined,
       })),
     )
+    setTargetPriceMode(false)
+    setTargetPrice(0)
+    setDistribution('percentage')
     setOpen(true)
   }
 
@@ -102,6 +113,39 @@ export function PromotionsPage() {
   function removeItem(key: string) {
     setItems((prev) => prev.filter((item) => item.key !== key))
   }
+
+  // Recomputes each line's discount_type/discount_value from a single
+  // "final combo price" whenever that mode is on. Deliberately excludes
+  // discount_type/discount_value from the dependency fingerprint below
+  // (only product_id/min_quantity) so writing the computed values back via
+  // setItems doesn't re-trigger itself in a loop.
+  const itemsFingerprint = items.map((item) => `${item.product_id}:${item.min_quantity}`).join(',')
+  useEffect(() => {
+    if (!targetPriceMode || !allProductLines || items.length === 0) return
+    const totalOriginal = items.reduce((sum, item) => {
+      const product = products?.find((p) => p.id === item.product_id)
+      return sum + (product?.price ?? 0) * (item.min_quantity || 1)
+    }, 0)
+    if (totalOriginal <= 0) return
+    const totalDiscount = totalOriginal - targetPrice
+
+    setItems((prev) => {
+      if (distribution === 'percentage') {
+        const rate = totalDiscount / totalOriginal
+        const value = Math.round(rate * 100 * 100) / 100
+        return prev.map((item) => ({ ...item, discount_type: 'percentage', discount_value: value }))
+      }
+      const share = Math.round((totalDiscount / prev.length) * 100) / 100
+      return prev.map((item, index) => {
+        const isLast = index === prev.length - 1
+        const value = isLast
+          ? Math.round((totalDiscount - share * (prev.length - 1)) * 100) / 100
+          : share
+        return { ...item, discount_type: 'fixed_amount', discount_value: value }
+      })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetPriceMode, targetPrice, distribution, allProductLines, itemsFingerprint, products])
 
   const canSubmit =
     name.trim() !== '' &&
@@ -188,6 +232,53 @@ export function PromotionsPage() {
                   </div>
                 </div>
 
+                <div className="grid gap-2 rounded-md border p-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={targetPriceMode}
+                      disabled={!allProductLines}
+                      onChange={(event) => setTargetPriceMode(event.target.checked)}
+                    />
+                    Definir por precio final del combo
+                  </label>
+                  {!allProductLines && (
+                    <p className="text-xs text-muted-foreground">
+                      Solo disponible cuando todas las líneas apuntan a un producto puntual (no a
+                      categoría).
+                    </p>
+                  )}
+                  {targetPriceMode && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-1.5">
+                        <Label htmlFor="target-price">Precio final del combo</Label>
+                        <Input
+                          id="target-price"
+                          type="number"
+                          min={0}
+                          value={targetPrice || ''}
+                          onChange={(event) => setTargetPrice(Number(event.target.value) || 0)}
+                        />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Label>Reparto del descuento</Label>
+                        <Select
+                          value={distribution}
+                          onValueChange={(value) => setDistribution(value as 'percentage' | 'equal')}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="percentage">Porcentual (proporcional al precio)</SelectItem>
+                            <SelectItem value="equal">Partes iguales entre las prendas</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-3">
                   {items.map((item) => (
                     <div key={item.key} className="grid gap-2 rounded-md border p-3">
@@ -247,6 +338,7 @@ export function PromotionsPage() {
                       <div className="grid grid-cols-4 gap-2">
                         <Select
                           value={item.discount_type}
+                          disabled={targetPriceMode}
                           onValueChange={(value) =>
                             updateItem(item.key, { discount_type: value as DiscountType })
                           }
@@ -263,6 +355,7 @@ export function PromotionsPage() {
                           type="number"
                           min={0}
                           placeholder="Valor"
+                          disabled={targetPriceMode}
                           value={item.discount_value || ''}
                           onChange={(event) =>
                             updateItem(item.key, { discount_value: Number(event.target.value) || 0 })

@@ -4,11 +4,16 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessRuleViolationError, InsufficientStockError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    InsufficientStockError,
+)
 from app.domain.branch import Branch
 from app.domain.brand import Brand
 from app.domain.category import Category
 from app.domain.color import Color
+from app.domain.customer import Customer
 from app.domain.payment_method import PaymentMethod
 from app.domain.product import Product
 from app.domain.promotion import DiscountType, Promotion
@@ -21,6 +26,7 @@ from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.brand_repository import SqlAlchemyBrandRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
+from app.repositories.customer_repository import SqlAlchemyCustomerRepository
 from app.repositories.payment_method_repository import SqlAlchemyPaymentMethodRepository
 from app.repositories.product_repository import SqlAlchemyProductRepository
 from app.repositories.promotion_item_repository import SqlAlchemyPromotionItemRepository
@@ -130,6 +136,7 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
         SqlAlchemyPaymentMethodRepository(session),
         SqlAlchemyProductRepository(session),
         _build_promotion_service(session),
+        SqlAlchemyCustomerRepository(session),
     )
 
 
@@ -656,3 +663,377 @@ async def test_create_sale_combo_promotion_wins_over_single_item_promotion(
     assert sale.promotion_discount == Decimal("7.50")
     items = await service.get_items(sale.id)
     assert all(item.promotion_id == combo.id for item in items)
+
+
+async def test_create_sale_with_surcharge_covers_total_from_net_amount(
+    db_session: AsyncSession,
+) -> None:
+    """A payment through a method with a surcharge covers the sale by its net
+    (amount_without_surcharge), not its gross (amount_with_surcharge)."""
+    stock = await _seed_stock(db_session, quantity=5)
+    card = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Debito", surcharge_percentage=Decimal("15"))
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=card.id,
+                amount_without_surcharge=Decimal("20.00"),
+                amount_with_surcharge=Decimal("23.00"),
+            )
+        ],
+    )
+
+    assert sale.total == Decimal("20.00")
+
+
+async def test_create_sale_rejects_surcharge_mismatch(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    card = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Debito", surcharge_percentage=Decimal("15"))
+    )
+    service = _build_sale_service(db_session)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.create_sale(
+            branch_id=stock.branch_id,
+            discount=Decimal("0"),
+            items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+            payments=[
+                SalePayment(
+                    payment_method_id=card.id,
+                    amount_without_surcharge=Decimal("20.00"),
+                    # Doesn't match 20.00 * 1.15 = 23.00.
+                    amount_with_surcharge=Decimal("20.00"),
+                )
+            ],
+        )
+
+
+async def test_get_items_summary_single_product(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    service = _build_sale_service(db_session)
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=2, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("40.00"),
+                amount_with_surcharge=Decimal("40.00"),
+            )
+        ],
+    )
+
+    summary = await service.get_items_summary(sale.id)
+
+    assert summary == "Remera x2"
+
+
+async def test_get_items_summary_multiple_products(db_session: AsyncSession) -> None:
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    shorts = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Short",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("15.00"),
+            price=Decimal("30.00"),
+        )
+    )
+    shirt = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10.00"),
+            price=Decimal("20.00"),
+        )
+    )
+    shorts_stock = await _seed_stock_for_product_in_branch(db_session, shorts, branch, 5)
+    shirt_stock = await _seed_stock_for_product_in_branch(db_session, shirt, branch, 5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[
+            SaleItem(stock_id=shorts_stock.id, quantity=1, unit_price=Decimal("30.00")),
+            SaleItem(stock_id=shirt_stock.id, quantity=1, unit_price=Decimal("20.00")),
+        ],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("50.00"),
+                amount_with_surcharge=Decimal("50.00"),
+            )
+        ],
+    )
+
+    summary = await service.get_items_summary(sale.id)
+
+    assert summary == "Short, Remera"
+
+
+async def test_create_sale_combo_promotion_repeats_for_multiple_complete_sets(
+    db_session: AsyncSession,
+) -> None:
+    """2 shirts + 2 shorts, combo min_quantity=1 each -> the combo triggers
+    twice, discounting both shirts and both shorts."""
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    shorts = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Short",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("15.00"),
+            price=Decimal("30.00"),
+        )
+    )
+    shirt = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10.00"),
+            price=Decimal("20.00"),
+        )
+    )
+    shorts_stock = await _seed_stock_for_product_in_branch(db_session, shorts, branch, 5)
+    shirt_stock = await _seed_stock_for_product_in_branch(db_session, shirt, branch, 5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+    await promotion_service.create(
+        Promotion(name="Combo Short+Remera 15%", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("15"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("15"),
+                product_id=shirt.id,
+            ),
+        ],
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[
+            SaleItem(stock_id=shorts_stock.id, quantity=2, unit_price=Decimal("30.00")),
+            SaleItem(stock_id=shirt_stock.id, quantity=2, unit_price=Decimal("20.00")),
+        ],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("85.00"),
+                amount_with_surcharge=Decimal("85.00"),
+            )
+        ],
+    )
+
+    # subtotal = 60 + 40 = 100; discount = 15% of both shorts (9) + both shirts (6) = 15.
+    assert sale.promotion_discount == Decimal("15.00")
+    assert sale.total == Decimal("85.00")
+
+
+async def test_create_sale_combo_promotion_limited_by_scarcer_line(
+    db_session: AsyncSession,
+) -> None:
+    """2 shirts + 1 short, combo min_quantity=1 each -> the combo triggers
+    once (limited by the single short); the second shirt stays full price."""
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    shorts = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Short",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("15.00"),
+            price=Decimal("30.00"),
+        )
+    )
+    shirt = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10.00"),
+            price=Decimal("20.00"),
+        )
+    )
+    shorts_stock = await _seed_stock_for_product_in_branch(db_session, shorts, branch, 5)
+    shirt_stock = await _seed_stock_for_product_in_branch(db_session, shirt, branch, 5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+    await promotion_service.create(
+        Promotion(name="Combo Short+Remera 15%", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("15"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("15"),
+                product_id=shirt.id,
+            ),
+        ],
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[
+            SaleItem(stock_id=shorts_stock.id, quantity=1, unit_price=Decimal("30.00")),
+            SaleItem(stock_id=shirt_stock.id, quantity=2, unit_price=Decimal("20.00")),
+        ],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("62.50"),
+                amount_with_surcharge=Decimal("62.50"),
+            )
+        ],
+    )
+
+    # subtotal = 30 + 40 = 70; discount = 15% of 1 short (4.5) + 1 shirt (3) = 7.5.
+    # The second shirt (20.00) stays full price.
+    assert sale.promotion_discount == Decimal("7.50")
+    assert sale.total == Decimal("62.50")
+    items = await service.get_items(sale.id)
+    shirt_items = [item for item in items if item.stock_id == shirt_stock.id]
+    assert len(shirt_items) == 1
+    assert shirt_items[0].promotion_id is not None
+    # The single shirt SaleItem carries quantity=2, but only 1 unit was
+    # covered by the combo — that's a known coarseness of applying the
+    # discount at the SaleItem level rather than per-unit.
+
+
+async def test_create_sale_single_line_threshold_promotion_not_limited_to_multiples(
+    db_session: AsyncSession,
+) -> None:
+    """A single-line promo with min_quantity=3 ("10% off if you buy 3+") must
+    keep discounting every matching unit in the cart, not just multiples of 3
+    — min_quantity there is a threshold gate, not a combo unit."""
+    stock, product = await _seed_stock_with_product(db_session, quantity=10)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+    await promotion_service.create(
+        Promotion(name="10% si comprás 3+", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product.id,
+                min_quantity=3,
+            )
+        ],
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=7, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("126.00"),
+                amount_with_surcharge=Decimal("126.00"),
+            )
+        ],
+    )
+
+    # subtotal = 140; 10% off all 7 units (not just 6, a multiple of 3) = 14.
+    assert sale.promotion_discount == Decimal("14.00")
+    assert sale.total == Decimal("126.00")
+
+
+async def test_create_sale_with_customer_attaches_customer_id(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    customer = await SqlAlchemyCustomerRepository(db_session).create(
+        Customer(dni="12345678", name="Cliente de Prueba")
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("20.00"),
+                amount_with_surcharge=Decimal("20.00"),
+            )
+        ],
+        customer_id=customer.id,
+    )
+
+    assert sale.customer_id == customer.id
+
+
+async def test_create_sale_with_unknown_customer_raises_entity_not_found(
+    db_session: AsyncSession,
+) -> None:
+    stock = await _seed_stock(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    service = _build_sale_service(db_session)
+
+    with pytest.raises(EntityNotFoundError):
+        await service.create_sale(
+            branch_id=stock.branch_id,
+            discount=Decimal("0"),
+            items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+            payments=[
+                SalePayment(
+                    payment_method_id=payment_method.id,
+                    amount_without_surcharge=Decimal("20.00"),
+                    amount_with_surcharge=Decimal("20.00"),
+                )
+            ],
+            customer_id=999,
+        )

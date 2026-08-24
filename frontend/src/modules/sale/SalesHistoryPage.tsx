@@ -19,11 +19,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
-import { useCreateExpense } from '@/hooks/useExpenses'
+import { useCreateExpense, useExpenses } from '@/hooks/useExpenses'
+import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { useDailyBalance } from '@/hooks/useDailyBalance'
+import { usePurchases } from '@/hooks/usePurchases'
 import { useSales } from '@/hooks/useSales'
 import { formatCurrency } from '@/lib/format'
 import { SaleDetailPanel } from '@/modules/sale/SaleDetailPanel'
+import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
+import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 import type { ExpenseInput } from '@/api/expense'
 
 function today(): string {
@@ -48,12 +52,16 @@ export function SalesHistoryPage() {
 
   const { data: balances, isLoading } = useDailyBalance(branchId ?? undefined)
   const { data: sales } = useSales()
+  const { data: expenses } = useExpenses()
+  const { data: purchases } = usePurchases()
+  const { data: exchanges } = useExchanges()
   const createExpenseMutation = useCreateExpense()
 
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<ExpenseInput>(emptyExpense(0))
   const [expandedDate, setExpandedDate] = useState<string | null>(null)
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null)
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null)
 
   function openCreateDialog() {
     if (branchId === null) return
@@ -192,6 +200,8 @@ export function SalesHistoryPage() {
               <TableHead>Ventas efectivo</TableHead>
               <TableHead>Ventas totales</TableHead>
               <TableHead>Gastos efectivo</TableHead>
+              <TableHead>Compras efectivo</TableHead>
+              <TableHead>Cambios efectivo</TableHead>
               <TableHead>Balance de caja</TableHead>
             </TableRow>
           </TableHeader>
@@ -204,6 +214,21 @@ export function SalesHistoryPage() {
                     (sale) => sale.branch_id === branchId && sale.created_at.slice(0, 10) === day.date,
                   )
                   .sort((a, b) => b.id - a.id)
+                const dayExpenses = expenses?.filter(
+                  (expense) => expense.branch_id === branchId && expense.date === day.date,
+                )
+                const dayPurchases = purchases
+                  ?.filter(
+                    (purchase) =>
+                      purchase.branch_id === branchId &&
+                      purchase.is_paid &&
+                      purchase.payment_date === day.date,
+                  )
+                  .sort((a, b) => b.id - a.id)
+                const dayExchanges = exchanges?.filter(
+                  (exchange) =>
+                    exchange.branch_id === branchId && exchange.created_at.slice(0, 10) === day.date,
+                )
                 return (
                   <Fragment key={day.date}>
                     <TableRow
@@ -223,34 +248,109 @@ export function SalesHistoryPage() {
                         {formatCurrency(day.sales_total)}
                       </TableCell>
                       <TableCell>{formatCurrency(day.expenses_cash_total)}</TableCell>
+                      <TableCell>{formatCurrency(day.purchases_cash_total)}</TableCell>
+                      <TableCell>{formatCurrency(day.exchanges_cash_total)}</TableCell>
                       <TableCell className="font-medium">{formatCurrency(day.balance)}</TableCell>
                     </TableRow>
                     {isExpanded && (
                       <TableRow key={`${day.date}-detail`}>
-                        <TableCell colSpan={6} className="bg-muted/30 p-0">
-                          <div className="p-3">
-                            {daySales?.length ? (
-                              <div className="flex flex-col gap-1">
-                                {daySales.map((sale) => (
-                                  <button
-                                    key={sale.id}
-                                    type="button"
-                                    onClick={() => setSelectedSaleId(sale.id)}
-                                    className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-left text-sm hover:border-primary"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      Venta #{sale.id}
-                                      {sale.cancelled_at !== null && (
-                                        <Badge variant="destructive">Cancelada</Badge>
-                                      )}
-                                    </span>
-                                    <span>{formatCurrency(sale.total)}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">Sin ventas ese día.</p>
-                            )}
+                        <TableCell colSpan={8} className="bg-muted/30 p-0">
+                          <div className="grid gap-3 p-3">
+                            <div>
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">Ventas</p>
+                              {daySales?.length ? (
+                                <div className="flex flex-col gap-1">
+                                  {daySales.map((sale) => (
+                                    <button
+                                      key={sale.id}
+                                      type="button"
+                                      onClick={() => setSelectedSaleId(sale.id)}
+                                      className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-left text-sm hover:border-primary"
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        {sale.items_summary}
+                                        <span className="text-xs text-muted-foreground">#{sale.id}</span>
+                                        {sale.cancelled_at !== null && (
+                                          <Badge variant="destructive">Cancelada</Badge>
+                                        )}
+                                      </span>
+                                      <span>{formatCurrency(sale.total)}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">Sin ventas ese día.</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">Gastos</p>
+                              {dayExpenses?.length ? (
+                                <div className="flex flex-col gap-1">
+                                  {dayExpenses.map((expense) => (
+                                    <div
+                                      key={expense.id}
+                                      className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-sm"
+                                    >
+                                      <span>
+                                        {expense.description}
+                                        <span className="ml-2 text-xs text-muted-foreground">
+                                          {paymentMethods?.find(
+                                            (pm) => pm.id === expense.payment_method_id,
+                                          )?.name ?? '-'}
+                                        </span>
+                                      </span>
+                                      <span>{formatCurrency(expense.amount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">Sin gastos ese día.</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                                Compras pagadas
+                              </p>
+                              {dayPurchases?.length ? (
+                                <div className="flex flex-col gap-1">
+                                  {dayPurchases.map((purchase) => (
+                                    <button
+                                      key={purchase.id}
+                                      type="button"
+                                      onClick={() => setSelectedPurchaseId(purchase.id)}
+                                      className="flex items-center justify-between rounded-md border bg-background px-3 py-2 text-left text-sm hover:border-primary"
+                                    >
+                                      <span>
+                                        {purchase.supplier_name ?? 'Sin proveedor'}
+                                        <span className="ml-2 text-xs text-muted-foreground">
+                                          #{purchase.id}
+                                        </span>
+                                      </span>
+                                      <span>{formatCurrency(purchase.total)}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">Sin compras pagadas ese día.</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="mb-1 text-xs font-medium text-muted-foreground">
+                                Cambios y devoluciones
+                              </p>
+                              {dayExchanges?.length ? (
+                                <div className="flex flex-col gap-1">
+                                  {dayExchanges.map((exchange) => (
+                                    <ExchangeCashRow key={exchange.id} exchangeId={exchange.id} />
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">Sin cambios ese día.</p>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -260,7 +360,7 @@ export function SalesHistoryPage() {
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Sin movimientos para esta sucursal
                 </TableCell>
               </TableRow>
@@ -277,6 +377,53 @@ export function SalesHistoryPage() {
           {selectedSaleId !== null && <SaleDetailPanel saleId={selectedSaleId} />}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={selectedPurchaseId !== null}
+        onOpenChange={(isOpen) => !isOpen && setSelectedPurchaseId(null)}
+      >
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de compra</DialogTitle>
+          </DialogHeader>
+          {selectedPurchaseId !== null && <PurchaseDetailPanel purchaseId={selectedPurchaseId} />}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+/** Shows one exchange's cash impact (positive = customer paid more, negative
+ * = refund) — needs the detail endpoint since the list one doesn't include
+ * payments. */
+function ExchangeCashRow({ exchangeId }: { exchangeId: number }) {
+  const { data: exchange } = useExchange(exchangeId)
+  const { data: paymentMethods } = usePaymentMethods()
+
+  if (!exchange) return null
+
+  const cashTotal = exchange.payments
+    .filter((payment) =>
+      paymentMethods?.some((pm) => pm.id === payment.payment_method_id && pm.is_cash),
+    )
+    .reduce((sum, payment) => sum + payment.amount, 0)
+
+  return (
+    <div className="rounded-md border bg-background px-3 py-2 text-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">
+          Cambio #{exchange.id} (venta #{exchange.sale_id})
+        </span>
+        <span>{formatCurrency(cashTotal)}</span>
+      </div>
+      <div className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+        {exchange.returned_items.length > 0 && (
+          <span>Devuelve: <ExchangeItemsList items={exchange.returned_items} /></span>
+        )}
+        {exchange.new_items.length > 0 && (
+          <span>Entrega: <ExchangeItemsList items={exchange.new_items} /></span>
+        )}
+      </div>
     </div>
   )
 }

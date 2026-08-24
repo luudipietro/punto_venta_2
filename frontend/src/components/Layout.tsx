@@ -13,6 +13,7 @@ import {
   Sun,
   Tag,
   Truck,
+  UserRound,
   Wallet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -37,6 +38,7 @@ const catalogNav = [
   { to: '/catalogo/talles', label: 'Talles', icon: Ruler },
   { to: '/catalogo/sucursales', label: 'Sucursales', icon: Store },
   { to: '/catalogo/metodos-pago', label: 'Métodos de pago', icon: Wallet },
+  { to: '/catalogo/clientes', label: 'Clientes', icon: UserRound },
 ]
 
 function NavItem({ to, label, icon: Icon }: { to: string; label: string; icon: typeof ShoppingCart }) {

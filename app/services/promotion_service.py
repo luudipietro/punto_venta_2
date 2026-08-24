@@ -168,19 +168,44 @@ class PromotionService(CrudService[Promotion]):
                 if target_product_id is None or available < line.min_quantity:
                     satisfied = False
                     break
-                if line.max_quantity is not None:
-                    effective_quantity = min(line.max_quantity, available)
-                else:
-                    effective_quantity = available
-                remaining[target_product_id] -= effective_quantity
-                matched.append((target_product_id, line, effective_quantity))
+                remaining[target_product_id] -= available
+                matched.append((target_product_id, line, available))
 
             if not satisfied:
                 continue
 
+            # A promotion with 2+ lines is a combo: it can trigger multiple
+            # times if the cart holds multiple complete sets (e.g. 2 shirts +
+            # 2 shorts triggers a "1 shirt + 1 short" combo twice, discounting
+            # both; 2 shirts + 1 short triggers it once, leaving the second
+            # shirt full price). A single-line promotion keeps the old
+            # behavior — min_quantity there is just a threshold gate ("10% off
+            # if you buy 3+"), not a combo unit, so it still discounts
+            # everything matched rather than only multiples of min_quantity.
+            repeat_count = (
+                min(available // line.min_quantity for _, line, available in matched)
+                if len(lines) >= 2
+                else None
+            )
+
             applications: list[PromotionApplication] = []
             total_discount = Decimal("0")
-            for product_id, line, effective_quantity in matched:
+            for product_id, line, available in matched:
+                if repeat_count is None:
+                    effective_quantity = (
+                        min(line.max_quantity, available)
+                        if line.max_quantity is not None
+                        else available
+                    )
+                else:
+                    uncapped = line.min_quantity * repeat_count
+                    capped = (
+                        line.max_quantity * repeat_count
+                        if line.max_quantity is not None
+                        else uncapped
+                    )
+                    effective_quantity = min(available, uncapped, capped)
+
                 unit_price = cart_unit_prices.get(product_id, Decimal("0"))
                 discount = compute_line_discount(
                     line.discount_type, line.discount_value, unit_price, effective_quantity

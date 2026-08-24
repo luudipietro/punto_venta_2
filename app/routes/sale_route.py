@@ -1,8 +1,6 @@
-from datetime import datetime
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, status
 
+from app.domain.sale import Sale
 from app.domain.sale_item import SaleItem
 from app.domain.sale_payment import SalePayment
 from app.schemas.sale_schema import (
@@ -10,6 +8,7 @@ from app.schemas.sale_schema import (
     SaleDetailRead,
     SaleItemPreviewRead,
     SaleItemRead,
+    SaleListRead,
     SalePaymentRead,
     SalePreviewInput,
     SalePreviewRead,
@@ -20,9 +19,16 @@ from app.services.sale_service import SaleService, get_sale_service
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
 
-@router.get("", response_model=list[SaleRead])
-async def list_sales(service: SaleService = Depends(get_sale_service)) -> list[SaleRead]:
-    return await service.list_all()
+@router.get("", response_model=list[SaleListRead])
+async def list_sales(service: SaleService = Depends(get_sale_service)) -> list[SaleListRead]:
+    sales = await service.list_all()
+    return [
+        SaleListRead(
+            **SaleRead.model_validate(sale).model_dump(),
+            items_summary=await service.get_items_summary(sale.id),
+        )
+        for sale in sales
+    ]
 
 
 @router.post("/preview", response_model=SalePreviewRead)
@@ -65,19 +71,7 @@ async def get_sale(
     sale = await service.get_by_id(sale_id)
     items = await service.get_items(sale_id)
     payments = await service.get_payments(sale_id)
-    return _to_detail_read(
-        sale.id,
-        sale.branch_id,
-        sale.subtotal,
-        sale.discount,
-        sale.promotion_discount,
-        sale.discount_reason,
-        sale.total,
-        sale.created_at,
-        items,
-        payments,
-        sale.cancelled_at,
-    )
+    return _to_detail_read(sale, items, payments)
 
 
 @router.post("/{sale_id}/cancel", response_model=SaleDetailRead)
@@ -87,19 +81,7 @@ async def cancel_sale(
     sale = await service.cancel_sale(sale_id)
     items = await service.get_items(sale_id)
     payments = await service.get_payments(sale_id)
-    return _to_detail_read(
-        sale.id,
-        sale.branch_id,
-        sale.subtotal,
-        sale.discount,
-        sale.promotion_discount,
-        sale.discount_reason,
-        sale.total,
-        sale.created_at,
-        items,
-        payments,
-        sale.cancelled_at,
-    )
+    return _to_detail_read(sale, items, payments)
 
 
 @router.post("", response_model=SaleDetailRead, status_code=status.HTTP_201_CREATED)
@@ -124,45 +106,25 @@ async def create_sale(
         items,
         payments,
         discount_reason=payload.discount_reason,
+        customer_id=payload.customer_id,
     )
-    return _to_detail_read(
-        sale.id,
-        sale.branch_id,
-        sale.subtotal,
-        sale.discount,
-        sale.promotion_discount,
-        sale.discount_reason,
-        sale.total,
-        sale.created_at,
-        items,
-        payments,
-        sale.cancelled_at,
-    )
+    return _to_detail_read(sale, items, payments)
 
 
 def _to_detail_read(
-    sale_id: int,
-    branch_id: int,
-    subtotal: Decimal,
-    discount: Decimal,
-    promotion_discount: Decimal,
-    discount_reason: str | None,
-    total: Decimal,
-    created_at: datetime,
-    items: list[SaleItem],
-    payments: list[SalePayment],
-    cancelled_at: datetime | None = None,
+    sale: Sale, items: list[SaleItem], payments: list[SalePayment]
 ) -> SaleDetailRead:
     return SaleDetailRead(
-        id=sale_id,
-        branch_id=branch_id,
-        subtotal=subtotal,
-        discount=discount,
-        promotion_discount=promotion_discount,
-        discount_reason=discount_reason,
-        total=total,
-        created_at=created_at,
-        cancelled_at=cancelled_at,
+        id=sale.id,
+        branch_id=sale.branch_id,
+        subtotal=sale.subtotal,
+        discount=sale.discount,
+        promotion_discount=sale.promotion_discount,
+        discount_reason=sale.discount_reason,
+        total=sale.total,
+        created_at=sale.created_at,
+        cancelled_at=sale.cancelled_at,
+        customer_id=sale.customer_id,
         items=[SaleItemRead.model_validate(item) for item in items],
         payments=[SalePaymentRead.model_validate(payment) for payment in payments],
     )

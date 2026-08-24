@@ -30,11 +30,16 @@ class SqlAlchemyExchangeRepository(SqlAlchemyRepository[ExchangeModel], Exchange
         return self._to_domain(model) if model else None
 
     async def create(self, exchange: Exchange) -> Exchange:
-        model = ExchangeModel(sale_id=exchange.sale_id)
+        model = ExchangeModel(sale_id=exchange.sale_id, branch_id=exchange.branch_id)
         self._session.add(model)
         await self._session.flush()
         return self._to_domain(model)
 
     @staticmethod
     def _to_domain(model: ExchangeModel) -> Exchange:
-        return Exchange(id=model.id, sale_id=model.sale_id)
+        return Exchange(
+            id=model.id,
+            sale_id=model.sale_id,
+            branch_id=model.branch_id,
+            created_at=model.created_at,
+        )

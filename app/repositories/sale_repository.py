@@ -51,6 +51,7 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
             promotion_discount=sale.promotion_discount,
             discount_reason=sale.discount_reason,
             total=sale.total,
+            customer_id=sale.customer_id,
         )
         self._session.add(model)
         await self._session.flush()
@@ -68,4 +69,5 @@ class SqlAlchemySaleRepository(SqlAlchemyRepository[SaleModel], SaleRepository):
             total=model.total,
             created_at=model.created_at,
             cancelled_at=model.cancelled_at,
+            customer_id=model.customer_id,
         )

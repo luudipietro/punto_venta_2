@@ -34,6 +34,17 @@ async def test_get_product_not_found(client: AsyncClient) -> None:
     assert resp.status_code == 404
 
 
+async def test_create_product_without_category_or_brand(client: AsyncClient) -> None:
+    create_resp = await client.post(
+        "/products",
+        json={"name": "Producto suelto", "cost": "10.00", "price": "20.00"},
+    )
+    assert create_resp.status_code == 201
+    product = create_resp.json()
+    assert product["category_id"] is None
+    assert product["brand_id"] is None
+
+
 async def test_create_product_with_missing_category_returns_404(client: AsyncClient) -> None:
     brand_resp = await client.post("/brands", json={"name": "Adidas"})
     brand_id = brand_resp.json()["id"]

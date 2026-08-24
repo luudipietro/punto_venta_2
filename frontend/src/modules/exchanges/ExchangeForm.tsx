@@ -155,7 +155,13 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
             <div key={item.key} className="flex items-center gap-2">
               <Select
                 value={item.stock_id ? String(item.stock_id) : undefined}
-                onValueChange={(value) => updateNewItem(item.key, { stock_id: Number(value) })}
+                onValueChange={(value) => {
+                  const selected = stockOptions.find((option) => option.stockId === Number(value))
+                  updateNewItem(item.key, {
+                    stock_id: Number(value),
+                    unit_price: selected?.price ?? item.unit_price,
+                  })
+                }}
               >
                 <SelectTrigger className="min-w-0 flex-1">
                   <SelectValue placeholder="Producto" />

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.core.exception_handlers import register_exception_handlers
@@ -20,6 +21,9 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(api_router)
+
+    settings.media_root.mkdir(parents=True, exist_ok=True)
+    app.mount(settings.media_url, StaticFiles(directory=settings.media_root), name="media")
 
     return app
 

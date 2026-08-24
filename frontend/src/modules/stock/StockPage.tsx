@@ -31,7 +31,7 @@ import { useBranches } from '@/hooks/useBranches'
 import { useColors } from '@/hooks/useColors'
 import { useSizes } from '@/hooks/useSizes'
 import { useCreateStock, useDecreaseStock, useDeleteStock, useIncreaseStock, useStocks } from '@/hooks/useStocks'
-import type { StockInput } from '@/api/stock'
+import type { Stock, StockInput } from '@/api/stock'
 
 const emptyInput: StockInput = {
   product_id: 0,
@@ -60,6 +60,7 @@ export function StockPage() {
     delta: 1 | -1
     productName: string
   } | null>(null)
+  const [duplicateStock, setDuplicateStock] = useState<Stock | null>(null)
 
   const [search, setSearch] = useState('')
   const [branchFilter, setBranchFilter] = useState<number | 'all'>('all')
@@ -119,13 +120,41 @@ export function StockPage() {
     setOpen(true)
   }
 
+  function findMatchingStock(input: StockInput): Stock | undefined {
+    return stocks?.find(
+      (stock) =>
+        stock.product_id === input.product_id &&
+        stock.branch_id === input.branch_id &&
+        (stock.color_id ?? null) === (input.color_id ?? null) &&
+        (stock.size_id ?? null) === (input.size_id ?? null),
+    )
+  }
+
   async function handleSubmit() {
+    const existing = findMatchingStock(form)
+    if (existing) {
+      setOpen(false)
+      setDuplicateStock(existing)
+      return
+    }
     try {
       await createMutation.mutateAsync(form)
       toast.success('Stock creado')
       setOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
+    }
+  }
+
+  async function confirmMergeDuplicate() {
+    if (!duplicateStock) return
+    try {
+      await increaseMutation.mutateAsync({ id: duplicateStock.id, amount: form.quantity })
+      toast.success('Cantidad sumada al stock existente')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
+    } finally {
+      setDuplicateStock(null)
     }
   }
 
@@ -415,6 +444,26 @@ export function StockPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmPendingAdjustment}>Confirmar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={duplicateStock !== null}
+        onOpenChange={(isOpen) => !isOpen && setDuplicateStock(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Esta variante ya tiene stock</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ya existe stock para ese producto/color/talle en esa sucursal, con{' '}
+              {duplicateStock?.quantity} unidades. ¿Sumar {form.quantity} más en vez de crear una
+              fila nueva?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmMergeDuplicate}>Sumar cantidad</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

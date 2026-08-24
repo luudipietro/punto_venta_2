@@ -19,3 +19,6 @@ class SaleModel(Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     cancelled_at: Mapped[datetime | None] = mapped_column(nullable=True, default=None)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id"), nullable=True, default=None
+    )

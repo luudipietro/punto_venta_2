@@ -8,8 +8,9 @@ import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreateSale, usePreviewSale } from '@/hooks/useSales'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
-import { applySurcharge } from '@/lib/payment'
+import { netAmountFor, summarizePayments } from '@/lib/payment'
 import { useCartStore } from '@/modules/sale/cartStore'
+import { CustomerPicker } from '@/modules/sale/CustomerPicker'
 import { ProductPicker } from '@/modules/sale/ProductPicker'
 import { CartPanel } from '@/modules/sale/CartPanel'
 import { PaymentPanel, type PaymentLine } from '@/modules/sale/PaymentPanel'
@@ -21,6 +22,7 @@ export function SalePage() {
   const { branchId, lines, discount, discountReason, setBranch, clear } = useCartStore()
   const [payments, setPayments] = useState<PaymentLine[]>([])
   const [preview, setPreview] = useState<SalePreviewRead>()
+  const [customerId, setCustomerId] = useState<number | null>(null)
 
   const previewMutation = usePreviewSale()
   const createSaleMutation = useCreateSale()
@@ -60,14 +62,7 @@ export function SalePage() {
 
   const total = preview?.total ?? 0
 
-  function surchargeFor(line: PaymentLine): number {
-    const method = paymentMethods?.find((item) => item.id === line.paymentMethodId)
-    if (!method) return line.amountWithoutSurcharge
-    return applySurcharge(line.amountWithoutSurcharge, method.surcharge_percentage)
-  }
-
-  const paidWithSurcharge = payments.reduce((sum, line) => sum + surchargeFor(line), 0)
-  const isBalanced = Math.abs(total - paidWithSurcharge) < 0.005
+  const { isBalanced } = summarizePayments(payments, paymentMethods, total)
   const canConfirm =
     branchId !== null &&
     lines.length > 0 &&
@@ -90,13 +85,15 @@ export function SalePage() {
         })),
         payments: payments.map((line) => ({
           payment_method_id: line.paymentMethodId as number,
-          amount_without_surcharge: line.amountWithoutSurcharge,
-          amount_with_surcharge: surchargeFor(line),
+          amount_without_surcharge: netAmountFor(line, paymentMethods),
+          amount_with_surcharge: line.amount,
         })),
+        customer_id: customerId,
       })
       toast.success('Venta registrada')
       clear()
       setPayments([])
+      setCustomerId(null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo registrar la venta')
     }
@@ -135,6 +132,10 @@ export function SalePage() {
 
           {lines.length > 0 && (
             <>
+              <div className="border-t pt-3">
+                <CustomerPicker customerId={customerId} onChange={setCustomerId} />
+              </div>
+
               <div className="border-t pt-3">
                 <p className="mb-2 text-sm font-medium">Pago</p>
                 <PaymentPanel payments={payments} onChange={setPayments} total={total} />

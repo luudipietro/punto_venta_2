@@ -38,15 +38,11 @@ from app.services.stock_service import StockService
 
 class ExchangeService:
     """Orchestrates the exchange/return transaction against an existing,
-    immutable Sale: validates that returned items were actually sold and in
-    quantities that don't exceed what was sold, restocks returned items,
+    immutable Sale: validates that returned items were actually sold, in
+    quantities that don't exceed what was sold minus what prior Exchange
+    records against the same Sale already returned, restocks returned items,
     destocks any new items given in exchange, checks the payment balance,
-    and persists everything as a single unit of work on the shared session.
-
-    Quantities already returned via prior Exchange records against the same
-    Sale are not subtracted here -- only the original sold quantity is used
-    as the cap. Closing that gap needs either an aggregate query per sale
-    item or a running counter, both deferred for now."""
+    and persists everything as a single unit of work on the shared session."""
 
     def __init__(
         self,
@@ -93,7 +89,8 @@ class ExchangeService:
         new_items: list[ExchangeNewItem],
         payments: list[ExchangePayment],
     ) -> Exchange:
-        if await self._sale_repository.get_by_id(sale_id) is None:
+        sale = await self._sale_repository.get_by_id(sale_id)
+        if sale is None:
             raise EntityNotFoundError("Sale", sale_id)
 
         sold_quantity_by_stock: dict[int, int] = {}
@@ -101,6 +98,15 @@ class ExchangeService:
             sold_quantity_by_stock[sale_item.stock_id] = (
                 sold_quantity_by_stock.get(sale_item.stock_id, 0) + sale_item.quantity
             )
+
+        already_returned_by_stock: dict[int, int] = {}
+        for prior_return in await self._exchange_return_item_repository.list_by_sale(sale_id):
+            already_returned_by_stock[prior_return.stock_id] = (
+                already_returned_by_stock.get(prior_return.stock_id, 0) + prior_return.quantity
+            )
+        for stock_id, already_returned in already_returned_by_stock.items():
+            if stock_id in sold_quantity_by_stock:
+                sold_quantity_by_stock[stock_id] -= already_returned
 
         for returned_item in returned_items:
             sold_quantity = sold_quantity_by_stock.get(returned_item.stock_id)
@@ -130,7 +136,9 @@ class ExchangeService:
             if await self._payment_method_repository.get_by_id(payment.payment_method_id) is None:
                 raise EntityNotFoundError("PaymentMethod", payment.payment_method_id)
 
-        exchange = await self._exchange_repository.create(Exchange(sale_id=sale_id))
+        exchange = await self._exchange_repository.create(
+            Exchange(sale_id=sale_id, branch_id=sale.branch_id)
+        )
 
         for returned_item in returned_items:
             await self._stock_service.increase_quantity(

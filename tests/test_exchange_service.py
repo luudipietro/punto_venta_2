@@ -27,6 +27,7 @@ from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.brand_repository import SqlAlchemyBrandRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
+from app.repositories.customer_repository import SqlAlchemyCustomerRepository
 from app.repositories.exchange_new_item_repository import SqlAlchemyExchangeNewItemRepository
 from app.repositories.exchange_payment_repository import SqlAlchemyExchangePaymentRepository
 from app.repositories.exchange_repository import SqlAlchemyExchangeRepository
@@ -97,6 +98,7 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
             SqlAlchemyProductRepository(session),
             SqlAlchemyCategoryRepository(session),
         ),
+        SqlAlchemyCustomerRepository(session),
     )
 
 
@@ -284,3 +286,44 @@ async def test_exchange_unknown_sale_raises_entity_not_found(db_session: AsyncSe
             new_items=[],
             payments=[],
         )
+
+
+async def test_exchange_cannot_return_the_same_unit_twice_across_exchanges(
+    db_session: AsyncSession,
+) -> None:
+    """Regression test: sell 1 unit, exchange it away (returning it restocks
+    it), then try to return "the same sold unit" again in a second Exchange
+    against the same sale — this used to succeed and double-restock, letting
+    stock drift upward with every repeated exchange on the same sale."""
+    old_stock = await _seed_stock(db_session, quantity=10, price=Decimal("20.00"))
+    new_stock = await _seed_stock(db_session, quantity=15, price=Decimal("20.00"))
+    sale, payment_method = await _make_sale(
+        db_session, old_stock, quantity=1, unit_price=Decimal("20.00")
+    )
+    service = _build_exchange_service(db_session)
+
+    await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=old_stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[ExchangeNewItem(stock_id=new_stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("0.00"))],
+    )
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.create_exchange(
+            sale_id=sale.id,
+            returned_items=[
+                ExchangeReturnItem(stock_id=old_stock.id, quantity=1, unit_price=Decimal("20.00"))
+            ],
+            new_items=[
+                ExchangeNewItem(stock_id=new_stock.id, quantity=1, unit_price=Decimal("20.00"))
+            ],
+            payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("0.00"))],
+        )
+
+    old_updated = await SqlAlchemyStockRepository(db_session).get_by_id(old_stock.id)
+    new_updated = await SqlAlchemyStockRepository(db_session).get_by_id(new_stock.id)
+    assert old_updated.quantity == 10  # 10 - 1 sold + 1 returned, second exchange rejected
+    assert new_updated.quantity == 14  # 15 - 1 given, second exchange rejected

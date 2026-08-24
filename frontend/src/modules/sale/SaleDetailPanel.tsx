@@ -14,9 +14,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useCancelSale, useSale } from '@/hooks/useSales'
+import { useCustomer } from '@/hooks/useCustomers'
+import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { formatCurrency } from '@/lib/format'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
+import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 
 export function SaleDetailPanel({ saleId }: { saleId: number }) {
@@ -28,6 +31,8 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
   // lookup and fall back to "Stock #N" (see CLAUDE.md / plan notes).
   const { options: stockOptions } = useStockOptions()
   const cancelMutation = useCancelSale()
+  const { data: allExchanges } = useExchanges()
+  const saleExchanges = allExchanges?.filter((exchange) => exchange.sale_id === saleId) ?? []
 
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [showExchangeForm, setShowExchangeForm] = useState(false)
@@ -57,6 +62,7 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
           <p className="text-xs text-muted-foreground">
             {new Date(sale.created_at).toLocaleString('es-AR')}
           </p>
+          {sale.customer_id !== null && <SaleCustomerLabel customerId={sale.customer_id} />}
         </div>
         {isCancelled && <Badge variant="destructive">Cancelada</Badge>}
       </div>
@@ -135,6 +141,22 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
         </div>
       </div>
 
+      {saleExchanges.length > 0 && (
+        <>
+          <Separator />
+          <div>
+            <p className="mb-1.5 text-sm font-medium">Cambios de esta venta</p>
+            <div className="flex flex-col gap-1.5">
+              {saleExchanges
+                .sort((a, b) => b.id - a.id)
+                .map((exchange) => (
+                  <SaleExchangeRow key={exchange.id} exchangeId={exchange.id} />
+                ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {!isCancelled && (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setShowExchangeForm((prev) => !prev)}>
@@ -169,6 +191,37 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+function SaleCustomerLabel({ customerId }: { customerId: number }) {
+  const { data: customer } = useCustomer(customerId)
+  if (!customer) return null
+  return (
+    <p className="text-xs text-muted-foreground">
+      Cliente: {customer.name} ({customer.dni})
+    </p>
+  )
+}
+
+function SaleExchangeRow({ exchangeId }: { exchangeId: number }) {
+  const { data: exchange } = useExchange(exchangeId)
+  if (!exchange) return null
+
+  return (
+    <div className="rounded-md border px-3 py-2 text-sm">
+      <p className="text-xs text-muted-foreground">Cambio #{exchange.id}</p>
+      {exchange.returned_items.length > 0 && (
+        <p>
+          Devuelve: <ExchangeItemsList items={exchange.returned_items} />
+        </p>
+      )}
+      {exchange.new_items.length > 0 && (
+        <p>
+          Entrega: <ExchangeItemsList items={exchange.new_items} />
+        </p>
+      )}
     </div>
   )
 }

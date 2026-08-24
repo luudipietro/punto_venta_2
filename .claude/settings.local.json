@@ -17,7 +17,15 @@
       "Bash(taskkill //F //PID 16388 //T)",
       "Bash(curl -s http://localhost:8000/stocks)",
       "Bash(python -c \"import json,sys; [print\\(s\\) for s in json.load\\(sys.stdin\\) if s['product_id']==1]\")",
-      "Read(//d/claude_code/**)"
+      "Read(//d/claude_code/**)",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(taskkill //F //PID 26708 //T)",
+      "Bash(taskkill //F //PID 5656 //T)",
+      "Bash(taskkill //F //PID 27384 //T)",
+      "Bash(taskkill //F //PID 25168 //T)",
+      "Bash(taskkill //F //PID 1840 //T)",
+      "Bash(curl -s -o /dev/null -w \"backend:%{http_code}\\\\n\" --max-time 2 http://localhost:8000/docs)",
+      "Bash(curl -s -o /dev/null -w \"frontend:%{http_code}\\\\n\" --max-time 2 http://localhost:5173)"
     ]
   }
 }

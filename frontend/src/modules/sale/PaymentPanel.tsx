@@ -9,13 +9,16 @@ import {
 } from '@/components/ui/select'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { formatCurrency } from '@/lib/format'
-import { applySurcharge } from '@/lib/payment'
-import { Plus, Trash2 } from 'lucide-react'
+import { applySurcharge, netAmountFor, summarizePayments, type PaymentMethodLike } from '@/lib/payment'
+import { Plus, Trash2, Wand2 } from 'lucide-react'
 
 export interface PaymentLine {
   key: string
   paymentMethodId: number | null
-  amountWithoutSurcharge: number
+  /** Gross amount actually charged/collected through this method (e.g. what
+   * the card terminal shows) — see lib/payment.ts for how it maps to how much
+   * of the sale this line covers net of the method's surcharge. */
+  amount: number
 }
 
 interface PaymentPanelProps {
@@ -24,11 +27,21 @@ interface PaymentPanelProps {
   total: number
 }
 
+function netCoveredByOtherLines(
+  currentKey: string,
+  lines: PaymentLine[],
+  methods: PaymentMethodLike[] | undefined,
+): number {
+  return lines
+    .filter((line) => line.key !== currentKey)
+    .reduce((sum, line) => sum + netAmountFor(line, methods), 0)
+}
+
 export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
   const { data: paymentMethods } = usePaymentMethods()
 
   function addLine() {
-    onChange([...payments, { key: crypto.randomUUID(), paymentMethodId: null, amountWithoutSurcharge: 0 }])
+    onChange([...payments, { key: crypto.randomUUID(), paymentMethodId: null, amount: 0 }])
   }
 
   function updateLine(key: string, patch: Partial<PaymentLine>) {
@@ -39,19 +52,24 @@ export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
     onChange(payments.filter((line) => line.key !== key))
   }
 
-  function surchargeFor(line: PaymentLine): number {
+  function fillRemaining(line: PaymentLine) {
+    const remainingNet =
+      Math.round((total - netCoveredByOtherLines(line.key, payments, paymentMethods)) * 100) / 100
     const method = paymentMethods?.find((item) => item.id === line.paymentMethodId)
-    if (!method) return line.amountWithoutSurcharge
-    return applySurcharge(line.amountWithoutSurcharge, method.surcharge_percentage)
+    const grossAmount = method
+      ? applySurcharge(remainingNet, method.surcharge_percentage)
+      : remainingNet
+    updateLine(line.key, { amount: Math.max(0, grossAmount) })
   }
 
-  const paidWithSurcharge = payments.reduce((sum, line) => sum + surchargeFor(line), 0)
-  const remaining = Math.round((total - paidWithSurcharge) * 100) / 100
+  const { remaining } = summarizePayments(payments, paymentMethods, total)
 
   return (
     <div className="flex flex-col gap-2">
       {payments.map((line) => {
         const method = paymentMethods?.find((item) => item.id === line.paymentMethodId)
+        const remainingExcludingThisLine =
+          Math.round((total - netCoveredByOtherLines(line.key, payments, paymentMethods)) * 100) / 100
         return (
           <div key={line.key} className="flex items-center gap-2">
             <Select
@@ -73,16 +91,24 @@ export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
             <Input
               type="number"
               min={0}
-              placeholder="Monto"
-              value={line.amountWithoutSurcharge || ''}
-              onChange={(event) =>
-                updateLine(line.key, { amountWithoutSurcharge: Number(event.target.value) || 0 })
-              }
+              placeholder="Monto cobrado"
+              value={line.amount || ''}
+              onChange={(event) => updateLine(line.key, { amount: Number(event.target.value) || 0 })}
               className="flex-1"
             />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              title="Completar restante"
+              disabled={remainingExcludingThisLine <= 0}
+              onClick={() => fillRemaining(line)}
+            >
+              <Wand2 className="size-3.5" />
+            </Button>
             {method && method.surcharge_percentage > 0 && (
-              <span className="w-24 shrink-0 text-right text-xs text-muted-foreground">
-                {formatCurrency(surchargeFor(line))}
+              <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
+                cubre {formatCurrency(netAmountFor(line, paymentMethods))}
               </span>
             )}
             <Button variant="ghost" size="icon" className="size-7" onClick={() => removeLine(line.key)}>

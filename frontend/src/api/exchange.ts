@@ -45,6 +45,8 @@ export interface ExchangePaymentRead {
 export interface ExchangeRead {
   id: number
   sale_id: number
+  branch_id: number
+  created_at: string
 }
 
 export interface ExchangeDetailRead extends ExchangeRead {

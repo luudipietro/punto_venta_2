@@ -7,7 +7,9 @@ import { useSizes } from '@/hooks/useSizes'
 export interface StockOption {
   stockId: number
   branchId: number
+  productId: number
   productName: string
+  price: number
   variantLabel: string
   colorHex: string | null
   imageUrl: string | null
@@ -52,7 +54,9 @@ export function useStockOptions(branchId?: number | null) {
         return {
           stockId: stock.id,
           branchId: stock.branch_id,
+          productId: product.id,
           productName: product.name,
+          price: product.price,
           variantLabel,
           colorHex: color?.hex_code ?? null,
           imageUrl: product.image_url,

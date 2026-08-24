@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export class ApiError extends Error {
   status: number
@@ -52,9 +52,25 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T
 }
 
+/** Uploads a file as multipart/form-data — unlike `request()`, this must not
+ * set a Content-Type header itself, since the browser needs to add the
+ * multipart boundary when it serializes the FormData body. */
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', body: formData })
+
+  if (!response.ok) {
+    throw new ApiError(await parseErrorMessage(response), response.status)
+  }
+  return (await response.json()) as T
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   delete: (path: string) => request<void>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, file: File) => uploadFile<T>(path, file),
 }

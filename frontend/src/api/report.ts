@@ -5,6 +5,8 @@ export interface DailyBalance {
   sales_cash_total: number
   sales_total: number
   expenses_cash_total: number
+  purchases_cash_total: number
+  exchanges_cash_total: number
   balance: number
 }
 

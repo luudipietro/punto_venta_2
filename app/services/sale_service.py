@@ -12,6 +12,7 @@ from app.infrastructure.db.session import get_db
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
+from app.repositories.customer_repository import CustomerRepository, SqlAlchemyCustomerRepository
 from app.repositories.payment_method_repository import (
     PaymentMethodRepository,
     SqlAlchemyPaymentMethodRepository,
@@ -46,6 +47,7 @@ class SaleService:
         payment_method_repository: PaymentMethodRepository,
         product_repository: ProductRepository,
         promotion_service: PromotionService,
+        customer_repository: CustomerRepository,
     ) -> None:
         self._sale_repository = sale_repository
         self._sale_item_repository = sale_item_repository
@@ -54,6 +56,7 @@ class SaleService:
         self._payment_method_repository = payment_method_repository
         self._product_repository = product_repository
         self._promotion_service = promotion_service
+        self._customer_repository = customer_repository
 
     async def list_all(self) -> list[Sale]:
         return await self._sale_repository.list_all()
@@ -69,6 +72,39 @@ class SaleService:
 
     async def get_payments(self, sale_id: int) -> list[SalePayment]:
         return await self._sale_payment_repository.list_by_sale(sale_id)
+
+    async def get_items_summary(self, sale_id: int) -> str:
+        """Human-readable summary of what was sold, e.g. "Remera Nike x2,
+        Pantalón Cargo" — used by the sales list instead of a bare "Venta #N",
+        since the id means nothing to a cashier. Resolves each item's product
+        the same way compute_totals does, preserving cart order and deduping
+        repeated purchases of the same product."""
+        items = await self.get_items(sale_id)
+
+        product_names: dict[int, str] = {}
+        product_order: list[int] = []
+        product_quantities: dict[int, int] = {}
+        for item in items:
+            stock = await self._stock_service.get_by_id(item.stock_id)
+            product = await self._product_repository.get_by_id(stock.product_id)
+            if product is None:
+                raise EntityNotFoundError("Product", stock.product_id)
+            if product.id not in product_quantities:
+                product_order.append(product.id)
+                product_names[product.id] = product.name
+            product_quantities[product.id] = product_quantities.get(product.id, 0) + item.quantity
+
+        def label(product_id: int) -> str:
+            name = product_names[product_id]
+            quantity = product_quantities[product_id]
+            return f"{name} x{quantity}" if quantity > 1 else name
+
+        shown = product_order[:2]
+        summary = ", ".join(label(product_id) for product_id in shown)
+        remaining = len(product_order) - len(shown)
+        if remaining > 0:
+            summary += f" y {remaining} más"
+        return summary
 
     async def compute_totals(
         self,
@@ -135,18 +171,37 @@ class SaleService:
         items: list[SaleItem],
         payments: list[SalePayment],
         discount_reason: str | None = None,
+        customer_id: int | None = None,
     ) -> Sale:
         computed = await self.compute_totals(branch_id, discount, items, discount_reason)
+        if customer_id is not None:
+            if await self._customer_repository.get_by_id(customer_id) is None:
+                raise EntityNotFoundError("Customer", customer_id)
+            computed.customer_id = customer_id
 
-        paid_total = sum((payment.amount_with_surcharge for payment in payments), Decimal("0"))
+        # amount_with_surcharge is what's actually charged (e.g. on the card
+        # terminal); amount_without_surcharge is how much of the sale that
+        # payment covers net of the payment method's surcharge. It's the net
+        # amounts that must add up to the sale total, not the gross ones.
+        paid_total = sum((payment.amount_without_surcharge for payment in payments), Decimal("0"))
         if paid_total != computed.total:
             raise BusinessRuleViolationError(
                 f"Payments total ({paid_total}) does not match the sale total ({computed.total})"
             )
 
         for payment in payments:
-            if await self._payment_method_repository.get_by_id(payment.payment_method_id) is None:
+            method = await self._payment_method_repository.get_by_id(payment.payment_method_id)
+            if method is None:
                 raise EntityNotFoundError("PaymentMethod", payment.payment_method_id)
+            expected_without_surcharge = (
+                payment.amount_with_surcharge / (1 + method.surcharge_percentage / Decimal("100"))
+            ).quantize(Decimal("0.01"))
+            if expected_without_surcharge != payment.amount_without_surcharge:
+                raise BusinessRuleViolationError(
+                    f"Payment surcharge mismatch for method {method.id}: "
+                    f"expected amount_without_surcharge={expected_without_surcharge}, "
+                    f"got {payment.amount_without_surcharge}"
+                )
 
         sale = await self._sale_repository.create(computed)
 
@@ -201,4 +256,5 @@ def get_sale_service(session: AsyncSession = Depends(get_db)) -> SaleService:
             SqlAlchemyProductRepository(session),
             SqlAlchemyCategoryRepository(session),
         ),
+        SqlAlchemyCustomerRepository(session),
     )

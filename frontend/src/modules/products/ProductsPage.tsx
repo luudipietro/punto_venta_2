@@ -20,14 +20,16 @@ import { useCategories } from '@/hooks/useCategories'
 import { useBrands } from '@/hooks/useBrands'
 import { useCreateProduct, useDeleteProduct, useProducts, useUpdateProduct } from '@/hooks/useProducts'
 import { formatCurrency } from '@/lib/format'
+import { uploadProductImage } from '@/api/product'
 import type { ProductInput } from '@/api/product'
+import { ProductGallery } from '@/modules/products/ProductGallery'
 
 type ViewMode = 'list' | 'grid'
 
 const emptyInput: ProductInput = {
   name: '',
-  category_id: 0,
-  brand_id: 0,
+  category_id: null,
+  brand_id: null,
   cost: 0,
   price: 0,
   description: '',
@@ -46,6 +48,20 @@ export function ProductsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<ProductInput>(emptyInput)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
+  const [uploadingImage, setUploadingImage] = useState(false)
+
+  async function handleImageFile(file: File | undefined) {
+    if (!file) return
+    setUploadingImage(true)
+    try {
+      const url = await uploadProductImage(file)
+      setForm((prev) => ({ ...prev, image_url: url }))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo subir la imagen')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
 
   function openCreateDialog() {
     setEditingId(null)
@@ -56,8 +72,8 @@ export function ProductsPage() {
   function openEditDialog(product: {
     id: number
     name: string
-    category_id: number
-    brand_id: number
+    category_id: number | null
+    brand_id: number | null
     cost: number
     price: number
     description: string | null
@@ -154,15 +170,19 @@ export function ProductsPage() {
                   <div className="grid gap-1.5">
                     <Label>Categoría</Label>
                     <Select
-                      value={form.category_id ? String(form.category_id) : undefined}
+                      value={form.category_id ? String(form.category_id) : 'none'}
                       onValueChange={(value) =>
-                        setForm((prev) => ({ ...prev, category_id: Number(value) }))
+                        setForm((prev) => ({
+                          ...prev,
+                          category_id: value === 'none' ? null : Number(value),
+                        }))
                       }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Elegir" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="none">Sin categoría</SelectItem>
                         {categories?.map((category) => (
                           <SelectItem key={category.id} value={String(category.id)}>
                             {category.name}
@@ -174,13 +194,19 @@ export function ProductsPage() {
                   <div className="grid gap-1.5">
                     <Label>Marca</Label>
                     <Select
-                      value={form.brand_id ? String(form.brand_id) : undefined}
-                      onValueChange={(value) => setForm((prev) => ({ ...prev, brand_id: Number(value) }))}
+                      value={form.brand_id ? String(form.brand_id) : 'none'}
+                      onValueChange={(value) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          brand_id: value === 'none' ? null : Number(value),
+                        }))
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Elegir" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="none">Sin marca</SelectItem>
                         {brands?.map((brand) => (
                           <SelectItem key={brand.id} value={String(brand.id)}>
                             {brand.name}
@@ -227,7 +253,7 @@ export function ProductsPage() {
                   />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label htmlFor="image-url">Imagen (URL)</Label>
+                  <Label>Imagen</Label>
                   <div className="flex items-center gap-2">
                     {form.image_url ? (
                       <img
@@ -242,25 +268,36 @@ export function ProductsPage() {
                       <div className="size-10 shrink-0 rounded-md border bg-muted" />
                     )}
                     <Input
-                      id="image-url"
-                      placeholder="https://..."
-                      value={form.image_url ?? ''}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, image_url: event.target.value }))
-                      }
+                      id="image-file"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      disabled={uploadingImage}
+                      onChange={(event) => handleImageFile(event.target.files?.[0])}
+                      className="flex-1"
                     />
                   </div>
+                  {uploadingImage && <p className="text-xs text-muted-foreground">Subiendo imagen...</p>}
+                  <Input
+                    id="image-url"
+                    placeholder="o pegar una URL"
+                    value={form.image_url ?? ''}
+                    onChange={(event) => setForm((prev) => ({ ...prev, image_url: event.target.value }))}
+                  />
                 </div>
+                {editingId !== null ? (
+                  <ProductGallery productId={editingId} />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Guardá el producto para agregar más fotos a la galería.
+                  </p>
+                )}
               </div>
               <DialogFooter>
                 <Button
                   onClick={handleSubmit}
                   disabled={
-                    createMutation.isPending ||
-                    updateMutation.isPending ||
-                    !form.name ||
-                    !form.category_id ||
-                    !form.brand_id
+                    createMutation.isPending || updateMutation.isPending || uploadingImage || !form.name
                   }
                 >
                   Guardar

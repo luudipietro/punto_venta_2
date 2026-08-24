@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,6 +19,11 @@ class Settings(BaseSettings):
 
     # Origins allowed to call the API from a browser (the frontend's dev/prod URL).
     cors_origins: list[str] = ["http://localhost:5173"]
+
+    # Local disk storage for uploaded images (e.g. product photos), served as
+    # static files at media_url. No cloud storage dependency.
+    media_root: Path = Path("media")
+    media_url: str = "/media"
 
 
 @lru_cache

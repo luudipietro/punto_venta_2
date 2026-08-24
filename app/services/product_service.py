@@ -32,10 +32,12 @@ class ProductService(CrudService[Product]):
         return await super().update(entity_id, product)
 
     async def _ensure_references_exist(self, product: Product) -> None:
-        if await self._category_repository.get_by_id(product.category_id) is None:
-            raise EntityNotFoundError("Category", product.category_id)
-        if await self._brand_repository.get_by_id(product.brand_id) is None:
-            raise EntityNotFoundError("Brand", product.brand_id)
+        if product.category_id is not None:
+            if await self._category_repository.get_by_id(product.category_id) is None:
+                raise EntityNotFoundError("Category", product.category_id)
+        if product.brand_id is not None:
+            if await self._brand_repository.get_by_id(product.brand_id) is None:
+                raise EntityNotFoundError("Brand", product.brand_id)
 
 
 def get_product_service(session: AsyncSession = Depends(get_db)) -> ProductService:
