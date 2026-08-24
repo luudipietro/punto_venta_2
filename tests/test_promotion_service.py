@@ -92,6 +92,59 @@ async def test_create_promotion_persists_items(db_session: AsyncSession) -> None
     assert items[0].promotion_id == promotion.id
 
 
+async def test_update_promotion_can_remove_an_item(db_session: AsyncSession) -> None:
+    product_a = await _seed_product(db_session, name="Remera")
+    product_b = await _seed_product(db_session, name="Short")
+    product_c = await _seed_product(db_session, name="Medias")
+    service = _build_promotion_service(db_session)
+    today = date.today()
+
+    promotion = await service.create(
+        Promotion(name="Combo", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product_a.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("20"),
+                product_id=product_b.id,
+            ),
+        ],
+    )
+    assert len(await service.get_items(promotion.id)) == 2
+
+    # Edit: drop the product_b line, keep product_a, add a brand-new product_c line.
+    await service.update(
+        promotion.id,
+        Promotion(name="Combo", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product_a.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("5"),
+                product_id=product_c.id,
+            ),
+        ],
+    )
+
+    items = await service.get_items(promotion.id)
+    target_product_ids = {item.product_id for item in items}
+    assert len(items) == 2
+    assert target_product_ids == {product_a.id, product_c.id}
+    assert product_b.id not in target_product_ids
+
+
 async def test_select_winning_applications_single_line_promotion(db_session: AsyncSession) -> None:
     product = await _seed_product(db_session)
     service = _build_promotion_service(db_session)

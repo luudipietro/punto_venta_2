@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useBranches } from '@/hooks/useBranches'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { useSale, useSales } from '@/hooks/useSales'
 import { formatCurrency } from '@/lib/format'
@@ -18,15 +19,27 @@ import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
 export function ExchangesPage() {
   const { data: exchanges, isLoading } = useExchanges()
   const { data: sales } = useSales()
+  const { data: branches } = useBranches()
 
   const [open, setOpen] = useState(false)
   const [saleId, setSaleId] = useState<number | null>(null)
   const { data: sale } = useSale(saleId ?? undefined)
+  const [branchFilter, setBranchFilter] = useState<number | 'all'>('all')
 
   function openCreateDialog() {
     setSaleId(null)
     setOpen(true)
   }
+
+  function branchIdForExchange(exchangeSaleId: number): number | undefined {
+    return sales?.find((s) => s.id === exchangeSaleId)?.branch_id
+  }
+
+  const visibleExchanges = [...(exchanges ?? [])]
+    .filter(
+      (exchange) => branchFilter === 'all' || branchIdForExchange(exchange.sale_id) === branchFilter,
+    )
+    .sort((a, b) => b.id - a.id)
 
   return (
     <div>
@@ -37,7 +50,7 @@ export function ExchangesPage() {
             <DialogTrigger asChild>
               <Button onClick={openCreateDialog}>Nuevo</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Nuevo cambio / devolución</DialogTitle>
               </DialogHeader>
@@ -69,6 +82,25 @@ export function ExchangesPage() {
         }
       />
 
+      <div className="mb-3">
+        <Select
+          value={String(branchFilter)}
+          onValueChange={(value) => setBranchFilter(value === 'all' ? 'all' : Number(value))}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Sucursal" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las sucursales</SelectItem>
+            {branches?.map((branch) => (
+              <SelectItem key={branch.id} value={String(branch.id)}>
+                {branch.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando...</p>
       ) : (
@@ -77,20 +109,26 @@ export function ExchangesPage() {
             <TableRow>
               <TableHead>#</TableHead>
               <TableHead>Venta</TableHead>
+              <TableHead>Sucursal</TableHead>
               <TableHead>Ítems devueltos</TableHead>
               <TableHead>Ítems nuevos</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {exchanges?.length ? (
-              [...exchanges]
-                .sort((a, b) => b.id - a.id)
-                .map((exchange) => (
-                  <ExchangeRow key={exchange.id} id={exchange.id} saleId={exchange.sale_id} />
-                ))
+            {visibleExchanges.length ? (
+              visibleExchanges.map((exchange) => (
+                <ExchangeRow
+                  key={exchange.id}
+                  id={exchange.id}
+                  saleId={exchange.sale_id}
+                  branchName={
+                    branches?.find((b) => b.id === branchIdForExchange(exchange.sale_id))?.name ?? '-'
+                  }
+                />
+              ))
             ) : (
               <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground">
+                <TableCell colSpan={5} className="text-center text-muted-foreground">
                   Sin cambios registrados
                 </TableCell>
               </TableRow>
@@ -102,12 +140,21 @@ export function ExchangesPage() {
   )
 }
 
-function ExchangeRow({ id, saleId }: { id: number; saleId: number }) {
+function ExchangeRow({
+  id,
+  saleId,
+  branchName,
+}: {
+  id: number
+  saleId: number
+  branchName: string
+}) {
   const { data: detail } = useExchange(id)
   return (
     <TableRow>
       <TableCell>{id}</TableCell>
       <TableCell>Venta #{saleId}</TableCell>
+      <TableCell>{branchName}</TableCell>
       <TableCell>{detail?.returned_items.length ?? '-'}</TableCell>
       <TableCell>{detail?.new_items.length ?? '-'}</TableCell>
     </TableRow>

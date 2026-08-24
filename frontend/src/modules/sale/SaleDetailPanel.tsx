@@ -22,7 +22,11 @@ import { useStockOptions } from '@/modules/shared/useStockOptions'
 export function SaleDetailPanel({ saleId }: { saleId: number }) {
   const { data: sale, isLoading } = useSale(saleId)
   const { data: paymentMethods } = usePaymentMethods()
-  const { options: stockOptions } = useStockOptions(sale?.branch_id)
+  // No branchId here on purpose: this resolves *historical* stock_ids for
+  // display, and a stock row's branch can drift from what it was at the
+  // time of sale — filtering by the sale's branch would silently drop the
+  // lookup and fall back to "Stock #N" (see CLAUDE.md / plan notes).
+  const { options: stockOptions } = useStockOptions()
   const cancelMutation = useCancelSale()
 
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -59,13 +63,23 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
 
       <div>
         <p className="mb-1.5 text-sm font-medium">Productos</p>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
           {sale.items.map((item) => {
-            const label = stockOptions.find((option) => option.stockId === item.stock_id)?.label
+            const option = stockOptions.find((entry) => entry.stockId === item.stock_id)
             return (
-              <div key={item.id} className="flex items-center justify-between text-sm">
-                <span>
-                  {item.quantity} × {label ?? `Stock #${item.stock_id}`}
+              <div key={item.id} className="flex items-center gap-2 text-sm">
+                {option?.imageUrl ? (
+                  <img
+                    src={option.imageUrl}
+                    alt=""
+                    className="size-8 shrink-0 rounded-md border object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden'
+                    }}
+                  />
+                ) : null}
+                <span className="min-w-0 flex-1">
+                  {item.quantity} × {option?.label ?? `Stock #${item.stock_id}`}
                   {item.promotion_id !== null && (
                     <Badge variant="secondary" className="ml-1.5">
                       promo

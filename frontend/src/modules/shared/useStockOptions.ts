@@ -7,11 +7,21 @@ import { useSizes } from '@/hooks/useSizes'
 export interface StockOption {
   stockId: number
   branchId: number
+  productName: string
+  variantLabel: string
+  colorHex: string | null
+  imageUrl: string | null
   label: string
 }
 
-/** Stock rows joined with their product/color/size for display in selects
- * (Purchase and Exchange item pickers) — optionally scoped to one branch. */
+/** Stock rows joined with their product/color/size for display — optionally
+ * scoped to one branch. Pass a `branchId` when using this as a *picker* for
+ * new stock to add (Purchase items, Exchange new items) — that's the only
+ * case where "must belong to this branch" makes sense. Call it with no
+ * `branchId` when *displaying* an already-recorded stock_id (a past Sale,
+ * Purchase, or Exchange line): a stock row's branch can drift from what it
+ * was at the time, and a historical record shouldn't lose its product name
+ * just because of that (see the "Stock #N" bug in SaleDetailPanel). */
 export function useStockOptions(branchId?: number | null) {
   const products = useProducts()
   const stocks = useStocks()
@@ -32,12 +42,22 @@ export function useStockOptions(branchId?: number | null) {
       .map((stock) => {
         const product = productById.get(stock.product_id)
         if (!product) return null
+        const color = stock.color_id !== null ? colorById.get(stock.color_id) : undefined
         const variantParts = [
-          stock.color_id !== null ? colorById.get(stock.color_id)?.name : null,
+          color?.name,
           stock.size_id !== null ? sizeById.get(stock.size_id)?.label : null,
         ].filter(Boolean)
-        const variant = variantParts.length ? ` (${variantParts.join(' / ')})` : ''
-        return { stockId: stock.id, branchId: stock.branch_id, label: `${product.name}${variant}` }
+        const variantLabel = variantParts.join(' / ')
+        const label = variantLabel ? `${product.name} (${variantLabel})` : product.name
+        return {
+          stockId: stock.id,
+          branchId: stock.branch_id,
+          productName: product.name,
+          variantLabel,
+          colorHex: color?.hex_code ?? null,
+          imageUrl: product.image_url,
+          label,
+        }
       })
       .filter((option): option is StockOption => option !== null)
   }, [products.data, stocks.data, colors.data, sizes.data, branchId])

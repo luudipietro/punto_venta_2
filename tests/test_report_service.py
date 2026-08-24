@@ -91,7 +91,7 @@ async def test_daily_cash_balance_only_counts_cash_payments_and_expenses(
 
     sale_service = _build_sale_service(db_session)
     # Sale split across cash + card: only the cash half should count.
-    await sale_service.create_sale(
+    sale = await sale_service.create_sale(
         branch_id=branch.id,
         discount=Decimal("0"),
         items=[SaleItem(stock_id=stock.id, quantity=2, unit_price=Decimal("20.00"))],
@@ -110,7 +110,10 @@ async def test_daily_cash_balance_only_counts_cash_payments_and_expenses(
     )
 
     expense_repo = SqlAlchemyExpenseRepository(db_session)
-    today = date.today()
+    # Use the sale's own server-set created_at date (not date.today()) so
+    # this doesn't flake near midnight when the DB clock (UTC) and the local
+    # Python clock disagree on what "today" is.
+    today = sale.created_at.date()
     # Cash expense: should reduce the cash balance.
     await expense_repo.create(
         Expense(

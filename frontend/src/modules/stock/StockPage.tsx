@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Minus, Plus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Minus, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -59,6 +60,59 @@ export function StockPage() {
     delta: 1 | -1
     productName: string
   } | null>(null)
+
+  const [search, setSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState<number | 'all'>('all')
+  const [sortField, setSortField] = useState<'name' | 'quantity' | 'branch'>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  function toggleSort(field: 'name' | 'quantity' | 'branch') {
+    if (field === sortField) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const rows = useMemo(() => {
+    if (!stocks) return []
+    return stocks.map((stock) => {
+      const product = products?.find((p) => p.id === stock.product_id)
+      const color = stock.color_id !== null ? colors?.find((c) => c.id === stock.color_id) : undefined
+      const variant = [
+        color?.name,
+        stock.size_id !== null ? sizes?.find((s) => s.id === stock.size_id)?.label : null,
+      ]
+        .filter(Boolean)
+        .join(' / ')
+      const branch = branches?.find((b) => b.id === stock.branch_id)
+      return {
+        stock,
+        product,
+        productName: product?.name ?? 'este producto',
+        color,
+        variant,
+        branchName: branch?.name ?? '',
+      }
+    })
+  }, [stocks, products, colors, sizes, branches])
+
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((row) => {
+      if (branchFilter !== 'all' && row.stock.branch_id !== branchFilter) return false
+      if (search && !row.productName.toLowerCase().includes(search.toLowerCase())) return false
+      return true
+    })
+    const sorted = [...filtered].sort((a, b) => {
+      let comparison = 0
+      if (sortField === 'name') comparison = a.productName.localeCompare(b.productName)
+      else if (sortField === 'quantity') comparison = a.stock.quantity - b.stock.quantity
+      else comparison = a.branchName.localeCompare(b.branchName)
+      return sortDir === 'asc' ? comparison : -comparison
+    })
+    return sorted
+  }, [rows, search, branchFilter, sortField, sortDir])
 
   function openCreateDialog() {
     setForm(emptyInput)
@@ -216,6 +270,31 @@ export function StockPage() {
         }
       />
 
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Input
+          placeholder="Buscar por producto..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="max-w-64"
+        />
+        <Select
+          value={String(branchFilter)}
+          onValueChange={(value) => setBranchFilter(value === 'all' ? 'all' : Number(value))}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Sucursal" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las sucursales</SelectItem>
+            {branches?.map((branch) => (
+              <SelectItem key={branch.id} value={String(branch.id)}>
+                {branch.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando...</p>
       ) : (
@@ -223,89 +302,90 @@ export function StockPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-12" />
-              <TableHead>Producto</TableHead>
+              <SortableHead
+                label="Producto"
+                active={sortField === 'name'}
+                dir={sortDir}
+                onClick={() => toggleSort('name')}
+              />
               <TableHead>Variante</TableHead>
-              <TableHead>Sucursal</TableHead>
-              <TableHead>Cantidad</TableHead>
+              <SortableHead
+                label="Sucursal"
+                active={sortField === 'branch'}
+                dir={sortDir}
+                onClick={() => toggleSort('branch')}
+              />
+              <SortableHead
+                label="Cantidad"
+                active={sortField === 'quantity'}
+                dir={sortDir}
+                onClick={() => toggleSort('quantity')}
+              />
               <TableHead className="w-32" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {stocks?.length ? (
-              stocks.map((stock) => {
-                const product = products?.find((p) => p.id === stock.product_id)
-                const productName = product?.name ?? 'este producto'
-                const color =
-                  stock.color_id !== null ? colors?.find((c) => c.id === stock.color_id) : undefined
-                const variant = [
-                  color?.name,
-                  stock.size_id !== null ? sizes?.find((s) => s.id === stock.size_id)?.label : null,
-                ]
-                  .filter(Boolean)
-                  .join(' / ')
-                return (
-                  <TableRow key={stock.id}>
-                    <TableCell>
-                      {product?.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt=""
-                          className="size-9 rounded-md border object-cover"
-                          onError={(event) => {
-                            event.currentTarget.style.visibility = 'hidden'
-                          }}
-                        />
-                      ) : (
-                        <div className="size-9 rounded-md border bg-muted" />
-                      )}
-                    </TableCell>
-                    <TableCell>{productName}</TableCell>
-                    <TableCell>
-                      {variant ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          {color && (
-                            <span
-                              className="inline-block size-3 shrink-0 rounded-full border"
-                              style={{ backgroundColor: color.hex_code }}
-                            />
-                          )}
-                          {variant}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {branches?.find((branch) => branch.id === stock.branch_id)?.name ?? '-'}
-                    </TableCell>
-                    <TableCell>{stock.quantity}</TableCell>
-                    <TableCell className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          setPendingAdjustment({ stockId: stock.id, delta: -1, productName })
-                        }
-                        disabled={stock.quantity <= 0}
-                      >
-                        <Minus className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          setPendingAdjustment({ stockId: stock.id, delta: 1, productName })
-                        }
-                      >
-                        <Plus className="size-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(stock.id)}>
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
+            {visibleRows.length ? (
+              visibleRows.map(({ stock, product, productName, color, variant, branchName }) => (
+                <TableRow key={stock.id}>
+                  <TableCell>
+                    {product?.image_url ? (
+                      <img
+                        src={product.image_url}
+                        alt=""
+                        className="size-9 rounded-md border object-cover"
+                        onError={(event) => {
+                          event.currentTarget.style.visibility = 'hidden'
+                        }}
+                      />
+                    ) : (
+                      <div className="size-9 rounded-md border bg-muted" />
+                    )}
+                  </TableCell>
+                  <TableCell>{productName}</TableCell>
+                  <TableCell>
+                    {variant ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        {color && (
+                          <span
+                            className="inline-block size-3 shrink-0 rounded-full border"
+                            style={{ backgroundColor: color.hex_code }}
+                          />
+                        )}
+                        {variant}
+                      </span>
+                    ) : (
+                      '-'
+                    )}
+                  </TableCell>
+                  <TableCell>{branchName || '-'}</TableCell>
+                  <TableCell>{stock.quantity}</TableCell>
+                  <TableCell className="flex justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        setPendingAdjustment({ stockId: stock.id, delta: -1, productName })
+                      }
+                      disabled={stock.quantity <= 0}
+                    >
+                      <Minus className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        setPendingAdjustment({ stockId: stock.id, delta: 1, productName })
+                      }
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(stock.id)}>
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
             ) : (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground">
@@ -339,5 +419,34 @@ export function StockPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+function SortableHead({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  dir: 'asc' | 'desc'
+  onClick: () => void
+}) {
+  return (
+    <TableHead>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'flex items-center gap-1 text-xs font-medium uppercase',
+          active ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
+        {label}
+        {active &&
+          (dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
+      </button>
+    </TableHead>
   )
 }

@@ -38,6 +38,9 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
   const { data: paymentMethods } = usePaymentMethods()
   const createMutation = useCreateExchange()
   const { options: stockOptions } = useStockOptions(sale.branch_id)
+  // Unfiltered: resolves the already-sold stock_ids for display, regardless
+  // of which branch that stock currently reports (see useStockOptions docs).
+  const { options: allStockOptions } = useStockOptions()
 
   const [returns, setReturns] = useState<ReturnDraft[]>([])
   const [newItems, setNewItems] = useState<NewItemDraft[]>([])
@@ -105,6 +108,7 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
         <div className="flex flex-col gap-1.5">
           {sale.items.map((item) => {
             const draft = returns.find((r) => r.stock_id === item.stock_id)
+            const option = allStockOptions.find((entry) => entry.stockId === item.stock_id)
             return (
               <div key={item.id} className="flex items-center gap-2 rounded-md border p-2">
                 <input
@@ -114,8 +118,19 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
                     toggleReturnItem(item.stock_id, item.unit_price, item.quantity, event.target.checked)
                   }
                 />
-                <span className="flex-1 text-sm">
-                  Stock #{item.stock_id} · {item.unit_price} c/u · vendidos: {item.quantity}
+                {option?.imageUrl ? (
+                  <img
+                    src={option.imageUrl}
+                    alt=""
+                    className="size-8 shrink-0 rounded-md border object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden'
+                    }}
+                  />
+                ) : null}
+                <span className="min-w-0 flex-1 text-sm">
+                  {option?.label ?? `Stock #${item.stock_id}`} · {item.unit_price} c/u · vendidos:{' '}
+                  {item.quantity}
                 </span>
                 {draft && (
                   <Input

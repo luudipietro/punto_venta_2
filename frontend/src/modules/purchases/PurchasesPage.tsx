@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useBranches } from '@/hooks/useBranches'
 import { useCreatePurchase, usePurchases } from '@/hooks/usePurchases'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
+import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
 import { formatCurrency } from '@/lib/format'
 import type { PurchaseItemInput } from '@/api/purchase'
 
@@ -34,6 +35,7 @@ export function PurchasesPage() {
   const [branchId, setBranchId] = useState<number | null>(null)
   const [supplierName, setSupplierName] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null)
 
   const { options: stockOptions } = useStockOptions(branchId)
 
@@ -83,7 +85,7 @@ export function PurchasesPage() {
             <DialogTrigger asChild>
               <Button onClick={openCreateDialog}>Nueva compra</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Nueva compra</DialogTitle>
               </DialogHeader>
@@ -204,7 +206,11 @@ export function PurchasesPage() {
               [...purchases]
                 .sort((a, b) => b.id - a.id)
                 .map((purchase) => (
-                  <TableRow key={purchase.id}>
+                  <TableRow
+                    key={purchase.id}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedPurchaseId(purchase.id)}
+                  >
                     <TableCell>{purchase.id}</TableCell>
                     <TableCell>
                       {branches?.find((branch) => branch.id === purchase.branch_id)?.name ?? purchase.branch_id}
@@ -223,6 +229,18 @@ export function PurchasesPage() {
           </TableBody>
         </Table>
       )}
+
+      <Dialog
+        open={selectedPurchaseId !== null}
+        onOpenChange={(isOpen) => !isOpen && setSelectedPurchaseId(null)}
+      >
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de compra</DialogTitle>
+          </DialogHeader>
+          {selectedPurchaseId !== null && <PurchaseDetailPanel purchaseId={selectedPurchaseId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

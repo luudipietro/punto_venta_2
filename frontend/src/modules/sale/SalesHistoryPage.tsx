@@ -270,7 +270,7 @@ export function SalesHistoryPage() {
       )}
 
       <Dialog open={selectedSaleId !== null} onOpenChange={(isOpen) => !isOpen && setSelectedSaleId(null)}>
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalle de venta</DialogTitle>
           </DialogHeader>

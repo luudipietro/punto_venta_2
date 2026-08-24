@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,7 @@ import {
 } from '@/hooks/usePromotions'
 import { promotionApi } from '@/api/promotion'
 import type { DiscountType, PromotionItemInput } from '@/api/promotion'
+import { PromotionDetail } from '@/modules/promotions/PromotionDetail'
 
 interface DraftItem extends PromotionItemInput {
   key: string
@@ -53,6 +54,7 @@ export function PromotionsPage() {
   const removeMutation = useDeletePromotion()
 
   const [open, setOpen] = useState(false)
+  const [detailId, setDetailId] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [name, setName] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -156,7 +158,7 @@ export function PromotionsPage() {
             <DialogTrigger asChild>
               <Button onClick={openCreateDialog}>Nueva</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>{editingId === null ? 'Nueva promoción' : 'Editar promoción'}</DialogTitle>
               </DialogHeader>
@@ -334,6 +336,9 @@ export function PromotionsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="flex justify-end gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => setDetailId(promotion.id)}>
+                      <Info className="size-4" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEditDialog(promotion.id)}>
                       <Pencil className="size-4" />
                     </Button>
@@ -353,6 +358,15 @@ export function PromotionsPage() {
           </TableBody>
         </Table>
       )}
+
+      <Dialog open={detailId !== null} onOpenChange={(isOpen) => !isOpen && setDetailId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detalle de la promoción</DialogTitle>
+          </DialogHeader>
+          {detailId !== null && <PromotionDetail promotionId={detailId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -50,21 +50,21 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                   availableQuantity: entry.availableQuantity,
                 })
               }
-              className="cursor-pointer gap-1 p-3 transition-colors hover:border-primary"
+              className="cursor-pointer gap-2 p-3 transition-colors hover:border-primary"
             >
-              <div className="flex items-center gap-2">
-                {entry.imageUrl ? (
-                  <img
-                    src={entry.imageUrl}
-                    alt=""
-                    className="size-8 shrink-0 rounded-md border object-cover"
-                    onError={(event) => {
-                      event.currentTarget.style.visibility = 'hidden'
-                    }}
-                  />
-                ) : null}
-                <p className="text-sm font-medium leading-tight">{entry.productName}</p>
-              </div>
+              {entry.imageUrl ? (
+                <img
+                  src={entry.imageUrl}
+                  alt=""
+                  className="aspect-square w-full rounded-md border object-cover"
+                  onError={(event) => {
+                    event.currentTarget.style.visibility = 'hidden'
+                  }}
+                />
+              ) : (
+                <div className="aspect-square w-full rounded-md border bg-muted" />
+              )}
+              <p className="truncate text-sm font-medium leading-tight">{entry.productName}</p>
               {entry.variantLabel && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {entry.colorHex && (
@@ -76,7 +76,7 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                   {entry.variantLabel}
                 </p>
               )}
-              <div className="mt-1 flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold">{formatCurrency(entry.unitPrice)}</span>
                 <Badge variant="secondary">{entry.availableQuantity} disp.</Badge>
               </div>

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { SalePreviewRead } from '@/api/sale'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/format'
 import { useCartStore } from '@/modules/sale/cartStore'
+import { PromotionDetail } from '@/modules/promotions/PromotionDetail'
 import { Minus, Plus, Trash2 } from 'lucide-react'
 
 interface CartPanelProps {
@@ -28,6 +30,15 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
 
   const [discountMode, setDiscountMode] = useState<DiscountMode>('amount')
   const [discountRawValue, setDiscountRawValue] = useState(0)
+  const [detailPromotionId, setDetailPromotionId] = useState<number | null>(null)
+
+  const appliedPromotionIds = Array.from(
+    new Set(
+      (preview?.items ?? [])
+        .map((item) => item.promotion_id)
+        .filter((id): id is number => id !== null),
+    ),
+  )
 
   // Cart total changing (e.g. quantity edited) shouldn't silently freeze a
   // percentage discount at its old amount — recompute it against the new subtotal.
@@ -172,8 +183,20 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
           <span>{formatCurrency(preview?.subtotal ?? fallbackSubtotal)}</span>
         </div>
         {(preview?.promotion_discount ?? 0) > 0 && (
-          <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-            <span>Promoción aplicada</span>
+          <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+            <span className="flex items-center gap-1.5">
+              Promoción aplicada
+              {appliedPromotionIds.map((promotionId) => (
+                <button
+                  key={promotionId}
+                  type="button"
+                  onClick={() => setDetailPromotionId(promotionId)}
+                  className="underline decoration-dotted underline-offset-2"
+                >
+                  (ver)
+                </button>
+              ))}
+            </span>
             <span>-{formatCurrency(preview!.promotion_discount)}</span>
           </div>
         )}
@@ -188,6 +211,18 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
           <span>{formatCurrency(preview?.total ?? fallbackSubtotal - discount)}</span>
         </div>
       </div>
+
+      <Dialog
+        open={detailPromotionId !== null}
+        onOpenChange={(isOpen) => !isOpen && setDetailPromotionId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detalle de la promoción</DialogTitle>
+          </DialogHeader>
+          {detailPromotionId !== null && <PromotionDetail promotionId={detailPromotionId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
