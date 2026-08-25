@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,42 +14,31 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useColors, useCreateColor, useDeleteColor, useUpdateColor } from '@/hooks/useColors'
-import type { Color, ColorInput } from '@/api/color'
+import { useColors, useCreateColor, useDeleteColor } from '@/hooks/useColors'
+import type { ColorInput } from '@/api/color'
 
 const emptyInput: ColorInput = { name: '', hex_code: '#000000' }
 
+/** Create/delete only — colors can't be renamed once created (see
+ * CLAUDE.md): a Stock row referencing a Color by id would silently look
+ * like it was always that new name/hex, misleading historical records. */
 export function ColorsPage() {
   const { data: colors, isLoading } = useColors()
   const createMutation = useCreateColor()
-  const updateMutation = useUpdateColor()
   const removeMutation = useDeleteColor()
 
   const [open, setOpen] = useState(false)
-  const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<ColorInput>(emptyInput)
 
   function openCreateDialog() {
-    setEditingId(null)
     setForm(emptyInput)
-    setOpen(true)
-  }
-
-  function openEditDialog(color: Color) {
-    setEditingId(color.id)
-    setForm({ name: color.name, hex_code: color.hex_code })
     setOpen(true)
   }
 
   async function handleSubmit() {
     try {
-      if (editingId === null) {
-        await createMutation.mutateAsync(form)
-        toast.success('Color creado')
-      } else {
-        await updateMutation.mutateAsync({ id: editingId, payload: form })
-        toast.success('Color actualizado')
-      }
+      await createMutation.mutateAsync(form)
+      toast.success('Color creado')
       setOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
@@ -77,7 +66,7 @@ export function ColorsPage() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>{editingId === null ? 'Nuevo color' : 'Editar color'}</DialogTitle>
+                <DialogTitle>Nuevo color</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-2">
                 <div className="grid gap-1.5">
@@ -111,10 +100,7 @@ export function ColorsPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button
-                  onClick={handleSubmit}
-                  disabled={createMutation.isPending || updateMutation.isPending || !form.name}
-                >
+                <Button onClick={handleSubmit} disabled={createMutation.isPending || !form.name}>
                   Guardar
                 </Button>
               </DialogFooter>
@@ -146,9 +132,6 @@ export function ColorsPage() {
                   </TableCell>
                   <TableCell>{color.name}</TableCell>
                   <TableCell className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => openEditDialog(color)}>
-                      <Pencil className="size-4" />
-                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(color.id)}>
                       <Trash2 className="size-4" />
                     </Button>

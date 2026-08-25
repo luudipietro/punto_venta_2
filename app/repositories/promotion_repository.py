@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.domain.promotion import Promotion
 from app.infrastructure.db.models.promotion_model import PromotionModel
@@ -43,7 +43,7 @@ class SqlAlchemyPromotionRepository(SqlAlchemyRepository[PromotionModel], Promot
             select(PromotionModel).where(
                 PromotionModel.active.is_(True),
                 PromotionModel.start_date <= on_date,
-                PromotionModel.end_date >= on_date,
+                or_(PromotionModel.end_date.is_(None), PromotionModel.end_date >= on_date),
             )
         )
         return [self._to_domain(model) for model in result.scalars().all()]

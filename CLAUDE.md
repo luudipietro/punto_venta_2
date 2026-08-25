@@ -139,22 +139,69 @@ is now fully covered.
   `_ENTITY_NAMES_ES` should follow this same pattern rather than leaking an English message to the
   frontend.
 - **Deleting a referenced row now fails with a friendly message instead of a fake CORS error**:
-  `ProductService.delete`, `StockService.delete`, and `CustomerService.delete` each override the
-  base `CrudService.delete` to catch `IntegrityError` (from a still-referencing FK — e.g. a Product
-  with stock, or a Stock with sales/purchases/exchanges) and re-raise it as
-  `BusinessRuleViolationError` with a specific Spanish message, same pattern `StockService.create`
-  already used for the `uq_stock_variant` conflict (see Stock below). Before this, deleting a
-  referenced row surfaced as an unhandled `IntegrityError` → generic 500 → (per the CORS note above)
-  a misleading "CORS header missing" error in the browser console instead of a real error message.
-  `ProductService`/`CustomerService`'s other FK edges (e.g. a Product with `ProductImage`s, a
-  Customer with Sales) aren't covered by this yet — see Known limitations.
+  `ProductService.delete`, `StockService.delete`, `CustomerService.delete`, `PromotionService.
+  delete`, and now (as of this round) `BranchService.delete`, `CategoryService.delete`,
+  `BrandService.delete`, `ColorService.delete`, `SizeService.delete`, and `PaymentMethodService.
+  delete` each override the base `CrudService.delete` to catch `IntegrityError` (from a
+  still-referencing FK — e.g. a Product with stock, a Branch with sales, or a Stock with
+  sales/purchases/exchanges) and re-raise it as `BusinessRuleViolationError` with a
+  specific-per-entity Spanish message, same pattern `StockService.create` already used for the
+  `uq_stock_variant` conflict (see Stock below). Every entity in the app now has this coverage —
+  the catch is a blanket `except IntegrityError`, so it isn't limited to one specific FK per
+  entity (e.g. `ProductService.delete` catches a referencing `Stock` row just as well as a
+  referencing `ProductImage`). Before this, deleting a referenced row surfaced as an unhandled
+  `IntegrityError` → generic 500 → (per the CORS note above) a misleading "CORS header missing"
+  error in the browser console instead of a real error message. `PromotionService.delete` also
+  has to delete the promotion's own `PromotionItem` rows first (`delete_by_promotion`, same as
+  `update()` already did) before deleting the parent — `promotion_items.promotion_id` has no
+  `ondelete=CASCADE`, so every promotion (which always has ≥1 item) would otherwise fail to delete
+  regardless of whether it was ever used in a sale.
 - **Dates render as dd/mm/yyyy** everywhere in the frontend via `formatDate`/`formatDateTime` in
   `frontend/src/lib/format.ts` (an `Intl.DateTimeFormat('es-AR', ...)` instance) — added because the
   default `toLocaleDateString()`/raw-ISO rendering used inconsistently across pages read as
   yyyy/mm/dd-ish or locale-dependent. `formatDate` expects a bare `YYYY-MM-DD` (appends `T12:00:00`
   before parsing, to dodge UTC-midnight rolling back a day in negative-UTC-offset browsers);
-  `formatDateTime` expects a full ISO timestamp. Prefer these over ad hoc `new Date(...).
-  toLocaleString()` calls in new code.
+  `formatDateTime`/`formatTimestamp` expect a full ISO timestamp. Prefer these over ad hoc
+  `new Date(...).toLocaleString()` calls in new code.
+- **Timestamps are naive UTC end-to-end but always displayed/grouped in Argentina time**:
+  `Sale.created_at`/`Exchange.created_at` (`server_default=func.now()`, Postgres UTC) are stored and
+  sent over the wire as naive datetimes with no `Z`/offset suffix — this used to cause a real bug
+  found in manual testing where a sale made late at night ART showed up under the *next* day (UTC
+  is 3h ahead of ART, and the frontend was parsing the naive string as browser-local time instead
+  of UTC, so it was neither correctly shifted nor correctly left alone). Fixed at the read/render
+  boundaries only, storage stays naive UTC: `app/services/report_service.py`'s `_to_art_date`
+  attaches `UTC` tzinfo then converts to `ZoneInfo("America/Argentina/Buenos_Aires")` before
+  `.date()` for the daily-balance report's day-grouping (needs the `tzdata` package on Windows,
+  where the OS doesn't ship IANA zone data for Python's stdlib `zoneinfo` to read — already added
+  to `pyproject.toml`); `formatDateTime`/`formatTimestamp` (`frontend/src/lib/format.ts`) append a
+  `Z` to the naive ISO string before parsing (so `Date` treats it as UTC, not local time) and format
+  with `timeZone: 'America/Argentina/Buenos_Aires'`; `SalesHistoryPage.tsx`'s own client-side
+  per-day grouping (`toArtDateKey`, using the `Intl.DateTimeFormat('en-CA', ...)` yyyy-mm-dd trick)
+  mirrors the same conversion so its sale/exchange membership per day agrees with what the backend
+  bucketed. `formatTimestamp` (new this round, keeps the time-of-day) is used where showing the
+  hour matters (`SaleDetailPanel.tsx`'s "Venta #N" header); `formatDateTime` stays date-only for
+  places that only ever showed a date (`ExchangeDetailPanel.tsx`). `Expense.date`/`Purchase.
+  payment_date` are plain user-entered `date` columns, not `func.now()`-derived — unaffected by any
+  of this.
+- **Category, Brand, Color, and Size are create/delete-only — renaming them after creation is
+  intentionally impossible.** Confirmed with the user: since `Stock`/`Product` reference these by
+  id, renaming e.g. Size "M" to "L" after stock already exists in that row would make the
+  historical stock/sales silently look like they were always size L. `PUT /categories/{id}`,
+  `/brands/{id}`, `/colors/{id}`, and `/sizes/{id}` were removed entirely (405 now) along with their
+  now-unused `CategoryUpdate`/`BrandUpdate`/`ColorUpdate`/`SizeUpdate` Pydantic schemas — the lock
+  is enforced server-side, not just hidden in the UI. `CategoryService`/`BrandService`/
+  `SizeService` still inherit `CrudService.update` (dead code now that no route calls it; left
+  as-is rather than also stripping the method, since `CrudService` is meant to be used as-is per
+  CLAUDE.md's own service conventions). Frontend: `SimpleCatalogPage.tsx` (shared by
+  `CategoriesPage.tsx`/`BrandsPage.tsx`/`SizesPage.tsx`) gained an `allowEdit?: boolean` prop
+  (default `true`, set to `false` for these three) that hides the "Editar" pencil button but keeps
+  create/delete — `Branch`/`PaymentMethod` still pass `allowEdit` unset (or omit it) to keep
+  editing. `ColorsPage.tsx` is the one bespoke (non-`SimpleCatalogPage`) catalog page, so its
+  edit-dialog branch/`openEditDialog`/`useUpdateColor` call were removed directly rather than
+  routed through a shared prop. `Color.hex_code`/`Brand.description`/`Category.description` are
+  now locked too, for simplicity (a partial lock — name fixed, other fields still editable — was
+  considered and explicitly rejected in favor of "lock everything, simplest to implement and
+  explain").
 - **Product** (`app/domain/product.py`) has `category_id`/`brand_id` as **optional** (`int |
   None`) — a product can be created without either, unlike every other FK on the entity.
   `ProductService._ensure_references_exist` only validates the FK when it's not `None` (same
@@ -182,6 +229,17 @@ is now fully covered.
   same session as the request's `get_db` — rolls back any items already reversed earlier in the
   loop) and does **not** revert the `Product.cost` overwrite from creation (no prior-cost history is
   kept; accepted limitation, same reasoning as not reversing promotions on a Sale cancel).
+  `PurchasesPage.tsx`'s "Nueva compra" dialog has two "+ Crear producto nuevo"/"+ Crear variante
+  nueva" buttons (disabled until a branch is picked, same gate as adding a line item) opening
+  `ProductQuickCreateDialog.tsx`/`StockQuickCreateDialog.tsx` — minimal create forms (no image
+  upload/gallery, no duplicate-variant merge check like `StockPage.tsx` has, since here the cashier
+  is deliberately creating a new variant) that call the same `useCreateProduct`/`useCreateStock`
+  mutations the full catalog pages use. Creating a product with no existing stock chains straight
+  into the stock dialog with that product preselected (a bare `Product` isn't purchasable —
+  `PurchaseItem` only stores `stock_id`); the new stock's `branch_id` is locked to the purchase's
+  own branch and starts at `quantity=0`, since the purchase itself is about to increase it. No
+  backend changes were needed — `PurchaseService.create_purchase` only ever required a valid
+  `stock_id` whose `branch_id` matches, nothing blocked creating that row moments earlier.
 - **Stock** (`app/domain/stock.py`) has optional `color_id`/`size_id` — a product with no color or
   size variety can have a `Stock` row with both set to `None`. The `uq_stock_variant` unique
   constraint on `(product_id, color_id, size_id, branch_id)` does not dedupe rows where
@@ -199,7 +257,11 @@ is now fully covered.
   carries `customer_id` (nullable FK, validated with `EntityNotFoundError` if set but unknown) —
   attaching a customer is entirely optional at checkout, never required to confirm a sale.
 - **Promotion** (`app/domain/promotion.py` + `app/domain/promotion_item.py`) is a parent/children
-  entity, not a flat row: `Promotion` only holds `name`/`start_date`/`end_date`/`active`, and every
+  entity, not a flat row: `Promotion` only holds `name`/`start_date`/`end_date`/`active`
+  (`end_date: date | None` — a promotion can have no end date, meaning it never expires; the
+  frontend's "Hasta" input is simply left blank, `end_date: endDate || null` in the payload, and
+  `PromotionRepository.list_active` matches with `or_(end_date.is_(None), end_date >= on_date)`),
+  and every
   condition/effect lives on one or more `PromotionItem` lines (`promotion_items` table), each
   targeting exactly one of `product_id`/`category_id` (enforced in `PromotionService._validate_items`,
   `BusinessRuleViolationError`, not the Pydantic schema) with its own `DiscountType.PERCENTAGE` /
@@ -214,37 +276,79 @@ is now fully covered.
   patching individual lines.
 
   It's wired into `SaleService.create_sale` via `PromotionService.select_winning_applications`,
-  which replaced the old single-promotion `find_applicable`: it finds every active promotion whose
-  lines are fully satisfied by the cart (a `category_id` line matches the first cart product in
-  that category, in cart order, with enough remaining quantity), clusters competing promotions by
-  shared matched products (union-find), and within each cluster picks the promotion with the
-  **greatest total discount amount** (not percentage — ties broken by lowest `promotion.id`).
-  Promotions in disjoint clusters (no shared product) all win and stack simultaneously. Each
-  winning line's discount is written onto the covering `SaleItem`(s)' `promotion_id`; items not
-  covered by any winner keep `promotion_id = None`. The resulting `Sale.promotion_discount` is
-  server-computed only (never accepted from `SaleCreate`) and is subtracted from the total
-  alongside the manual `discount` (which can now carry an optional `discount_reason` string, e.g.
-  "cliente frecuente" — also server-trusted, just persisted as-is).
+  which finds every active promotion whose lines are fully satisfied by the cart (a `category_id`
+  line matches the first cart product in that category, in cart order, with enough remaining
+  quantity), clusters competing promotions by shared matched products (union-find), and within
+  each cluster searches for the **combination of repeat counts across those candidates that
+  maximizes total discount** without exceeding the cart's available quantity for any shared
+  product — not just a single "winner" per cluster (see the optimizer description below).
+  Promotions in disjoint clusters (no shared product) all win simultaneously, each at their own
+  maximal repeat count. Each winning line's discount is written onto the covering `SaleItem`(s)'
+  `promotion_id`; items not covered by any winner keep `promotion_id = None`. The resulting
+  `Sale.promotion_discount` is server-computed only (never accepted from `SaleCreate`) and is
+  subtracted from the total alongside the manual `discount` (which can now carry an optional
+  `discount_reason` string, e.g. "cliente frecuente" — also server-trusted, just persisted as-is).
 
   `PromotionService._collect_satisfied_candidates` repeats a **2+ line** promotion's discount as
-  many times as the cart holds complete sets: `repeat_count = min(cart_qty // line.min_quantity)`
-  across all its lines, and each line's `effective_quantity` becomes `line.min_quantity *
-  repeat_count` (capped by `line.max_quantity * repeat_count` if set) instead of the full matched
-  cart quantity. So a "1 shirt + 1 shorts" combo with 2 of each in the cart discounts both pairs;
-  with 2 shirts + 1 shorts it only discounts 1 of each, leaving the second shirt full price. A
-  **single-line** promotion is deliberately exempt from this (`repeat_count` stays `None`, old
-  behavior) — there `min_quantity` is just a threshold gate ("10% off if you buy 3+"), not a combo
-  unit, so it keeps discounting every matching cart unit rather than only multiples of
-  `min_quantity`. This distinction is load-bearing; do not merge the two code paths without
-  re-checking `tests/test_sale_service.py`'s threshold-vs-combo tests.
+  many times as the cart holds complete sets: `max_repeat = min(cart_qty // line.min_quantity)`
+  across all its lines, and each line's discounted quantity per repeat is `min(line.min_quantity,
+  line.max_quantity)` if capped, else `line.min_quantity`. So a "1 shirt + 1 shorts" combo with 2
+  of each in the cart can repeat twice, discounting both pairs; with 2 shirts + 1 shorts it can
+  only repeat once, leaving the second shirt full price (unless a *different* promotion in the
+  same cluster claims it — see below). A **single-line** promotion is deliberately exempt from
+  this repeat-unit model (`max_repeat = 1`, an all-or-nothing binary choice) — there `min_quantity`
+  is just a threshold gate ("10% off if you buy 3+"), not a combo unit, so it still discounts every
+  matching cart unit in one shot rather than only multiples of `min_quantity`. This distinction is
+  load-bearing; do not merge the two code paths without re-checking `tests/test_sale_service.py`'s
+  threshold-vs-combo tests.
+
+  **Cluster optimizer** (`_CandidateTemplate`/`_optimize_cluster` in `promotion_service.py`): fixes
+  a real bug found in manual testing where, e.g., a "$4000 off Short+Remera" promo and a "$4500 off
+  Short+Remera+Medias" promo both matching a cart of 2 Short + 2 Remera + 1 Media used to pick only
+  the single higher-`total_discount` candidate (the $4000 one, since it could repeat twice for
+  $8000) and discard the other entirely — even though applying the $4500 combo once (consuming 1 of
+  each) *and* the $4000 combo once on the leftover 1 Short + 1 Remera ($8500 total) is strictly
+  better. Each candidate is now built as a `_CandidateTemplate` exposing its **per-repeat** unit
+  economics (`per_repeat_consumption`: how much of each shared product one repeat reserves from the
+  cart; `per_repeat_discount_quantity`/`per_repeat_discount`: how much gets discounted and for how
+  many dollars, one repeat's worth, already quantized to the cent so multiplying by an integer
+  count stays exact) instead of one repeat count already baked in. `_optimize_cluster` then runs a
+  bounded backtracking search over every candidate's repeat count (0..`max_repeat`) per cluster,
+  maximizing total discount subject to not exceeding any shared product's cart quantity — falling
+  back to the old single-winner-by-`total_discount` behavior (`_greedy_single_winner`) if a
+  cluster's search space exceeds `_MAX_SEARCH_SPACE` (100,000 combinations), logging a warning
+  rather than risking a slow request; this should never trigger for a realistic POS's promotion
+  count. **Known cosmetic limitation**: `SaleService.create_sale`'s per-`SaleItem` `promotion_id`
+  tagging loop assumes one promotion per product — when two different promotions from the
+  optimizer both cover part of the same product's `SaleItem` quantity, the item ends up tagged with
+  whichever promotion's `PromotionApplication` was processed last (sorted by `promotion_id`), not a
+  blend of both. The **total discount amount is always correct** regardless (summed directly from
+  `PromotionApplication.discount_amount`, independent of the tagging loop) — only the "promo" badge
+  shown per cart/sale line can be incomplete in this specific multi-promotion-per-product scenario.
+  Not fixed this round since it would need `SaleItem` to support more than one `promotion_id` per
+  line, a bigger schema change; see `tests/test_sale_service.py::
+  test_create_sale_applies_optimal_combination_of_overlapping_promotions` for the exact behavior.
 
   "Combo at a target final price" (e.g. shirt $15 + shorts $12 → combo price $25) is a **frontend-
   only** feature in `PromotionsPage.tsx` — the backend schema never changed. Given a final price and
-  a distribution mode (uniform percentage, or the total discount split in equal-dollar shares
-  across lines), the UI computes each line's `discount_type`/`discount_value` from the *products'
-  current price* × `min_quantity` before submitting the normal `PromotionItemInput[]` payload; it's
-  only offered when every line targets a `product_id` (not `category_id`), since a category line's
-  actual matched product — and thus its reference price — isn't known until sale time.
+  a distribution mode (proportional to each product's current price, or split in equal-dollar
+  shares across lines), the UI's `distributeDiscount` helper computes each line's dollar share of
+  the total discount, rounds every line but the last to the cent, and has the **last line absorb
+  the exact rounding remainder** so the shares always sum to precisely `totalOriginal - targetPrice`
+  — every line is always submitted as `discount_type: 'fixed_amount'` in this mode (never
+  `'percentage'`), even in the "proportional" distribution, specifically because a fixed dollar
+  amount reproduces exactly through the backend's `compute_line_discount` (no re-quantization
+  against a percentage rate at sale time the way the old single-shared-rate percentage math did).
+  This fixed a real bug found in manual testing where a $73,000 target combo actually charged
+  $72,997.95 at sale time — three compounding rounding steps (the frontend's old single-rate
+  percentage math, the `Numeric(12,2)` DB column, and the backend's per-line quantization against
+  the *live* sale-time price) never guaranteed the parts summed back to the whole. The one
+  remaining, accepted source of drift: if a product's price changes between promotion creation and
+  the actual sale, the fixed dollar amounts no longer reflect the *current* price ratio — this
+  matches the existing "computed once in the frontend" design already accepted elsewhere in this
+  feature. It's only offered when every line targets a `product_id` (not `category_id`), since a
+  category line's actual matched product — and thus its reference price — isn't known until sale
+  time.
 - **Exchange/Return** is one entity covering both flows: `Exchange` (now also carries `branch_id`
   — denormalized from the parent `Sale.branch_id` at creation time so `ReportService` doesn't need
   a join — and a server-set `created_at`, same `server_default=func.now()` pattern as
@@ -384,6 +488,11 @@ changes to point at a different engine (e.g. `mysql+aiomysql://...`); no applica
 need to change. Alembic (`alembic/env.py`) imports every model module explicitly so
 `Base.metadata` is fully populated before autogenerate runs — new model files must be added to
 that import list (and to `tests/conftest.py`, which does the same for the in-memory test schema).
+`tzdata` is a declared dependency purely because `app/services/report_service.py` uses stdlib
+`zoneinfo.ZoneInfo("America/Argentina/Buenos_Aires")` for UTC→ART day-grouping (see the Timestamps
+note above) — Windows doesn't ship IANA timezone data the way Linux/macOS do, so `zoneinfo` raises
+`ZoneInfoNotFoundError` without this package installed; harmless no-op on platforms that already
+have system tzdata.
 
 The Purchase, Promotion, and Exchange/Return tables (and `sales.promotion_discount`) are covered
 by a single autogenerated migration, `b817faa24431_add_purchase_and_purchase_items_tables.py`,
@@ -423,6 +532,11 @@ nullable=False)`; watch for this shape whenever backfilling a new NOT NULL FK fr
 already lives in another table), and `f571daee19e8` (new `customers` table, `dni` unique; nullable
 `sales.customer_id`, no backfill needed since it's optional permanently, not temporarily
 nullable-during-migration).
+
+Two more migrations, also applied: `182dfaa4e22c` (`exchanges.cancelled_at`, nullable, no backfill
+— same shape as `sales.cancelled_at`) and `9a1161f0b67b` (`promotions.end_date` loosened to
+nullable — pure relax-a-constraint, no backfill, same shape as the `products.category_id`/
+`brand_id` change above).
 
 ## Frontend
 
@@ -554,6 +668,21 @@ Raised during manual Postman/pgAdmin testing of the flows above; deliberately de
   past that check. The `uq_stock_variant` `IntegrityError` → `BusinessRuleViolationError` in
   `StockService.create` is the real backend enforcement, and it still doesn't cover the `color_id`/
   `size_id` both-`NULL` case (see Stock above) — a race there would silently create a second row.
+- **No login/user/role system yet**: everyone using the app today has full access to every screen
+  and every branch — there's no `User` entity, no authentication, and no concept of "admin" vs
+  "empleado". The user explicitly asked for this (admin can manage catalog/logo/branches and pick
+  which branch they're working in; an employee is tied to one branch, can't sell for or adjust
+  stock in another, and can only *view* whether another branch has stock) and explicitly deferred
+  it to a future round, since it's the single largest architectural change on the table — it needs
+  its own plan (auth mechanism, session/token storage, a `Branch`-scoped permission model touching
+  nearly every route) rather than being bundled into a round of smaller fixes. Until it exists,
+  `StockPage.tsx`/`ProductsPage.tsx`/the POS itself always require picking a branch explicitly
+  rather than inferring it from "whoever is logged in."
+- **No responsive/mobile layout yet**: the sidebar-based `Layout` component assumes a desktop-width
+  viewport; there's no hamburger/drawer navigation for tablets or phones. Also explicitly requested
+  and explicitly deferred alongside the login/roles work above, since a real redesign (not just CSS
+  tweaks) is warranted once the navigation structure is settled by whatever the login/roles round
+  decides about role-based menu visibility.
 
 None of these are scheduled — flag them to the user before picking one up, since each implies a
 design decision (e.g. how usage caps should be scoped, whether category combos should be

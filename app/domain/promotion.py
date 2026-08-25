@@ -12,6 +12,6 @@ class DiscountType(StrEnum):
 class Promotion:
     name: str
     start_date: date
-    end_date: date
+    end_date: date | None = None
     active: bool = True
     id: int | None = None

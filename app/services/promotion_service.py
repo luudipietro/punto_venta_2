@@ -1,8 +1,11 @@
-from dataclasses import dataclass
+import logging
+import math
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
@@ -19,6 +22,8 @@ from app.repositories.promotion_repository import PromotionRepository, SqlAlchem
 from app.services.base_service import CrudService
 
 _CENTS = Decimal("0.01")
+_MAX_SEARCH_SPACE = 100_000
+logger = logging.getLogger(__name__)
 
 
 def compute_line_discount(
@@ -45,11 +50,92 @@ class PromotionApplication:
 
 
 @dataclass(slots=True)
-class _Candidate:
+class _CandidateTemplate:
+    """One promotion's per-repeat unit economics: how much of each shared
+    product ONE repeat consumes (reserves from the cart, blocking other
+    promotions in the same cluster from also using it) versus how much of
+    it ONE repeat actually discounts, and the dollar amount ONE repeat is
+    worth. `_optimize_cluster` multiplies these by whatever repeat count
+    (0..max_repeat) it decides to use for this candidate — each per-repeat
+    discount is already quantized to the cent, so multiplying by an integer
+    count stays exact, avoiding compounding rounding across chosen counts.
+    A single-line (threshold, non-combo) promotion is modeled as
+    `max_repeat = 1`: a binary "applies whole or not at all" choice, to
+    preserve its existing all-or-nothing semantics."""
+
     promotion_id: int
-    applications: list[PromotionApplication]
     matched_products: set[int]
-    total_discount: Decimal
+    per_repeat_consumption: dict[int, int] = field(default_factory=dict)
+    per_repeat_discount_quantity: dict[int, int] = field(default_factory=dict)
+    per_repeat_discount: dict[int, Decimal] = field(default_factory=dict)
+    max_repeat: int = 0
+
+    @property
+    def discount_per_repeat(self) -> Decimal:
+        return sum(self.per_repeat_discount.values(), Decimal("0"))
+
+
+def _greedy_single_winner(templates: list[_CandidateTemplate]) -> dict[int, int]:
+    """Fallback for a cluster whose search space is too large to explore
+    exhaustively: reproduces the old "pick the single best candidate, apply
+    it at its own maximal repeat count" behavior."""
+    winner = max(templates, key=lambda t: (t.discount_per_repeat * t.max_repeat, -t.promotion_id))
+    return {t.promotion_id: (t.max_repeat if t is winner else 0) for t in templates}
+
+
+def _optimize_cluster(
+    templates: list[_CandidateTemplate], cart_quantities: dict[int, int]
+) -> dict[int, int]:
+    """Chooses a repeat count (0..max_repeat) for each candidate promotion in
+    a cluster of promotions competing over shared products, maximizing total
+    discount without exceeding the cart's available quantity for any shared
+    product. Exhaustive bounded backtracking — realistic POS input (a
+    handful of active, overlapping promotions) keeps the search space tiny;
+    a safety cap falls back to the old single-winner-per-cluster behavior
+    for pathological inputs rather than risking a slow request."""
+    search_space = math.prod(template.max_repeat + 1 for template in templates)
+    if search_space > _MAX_SEARCH_SPACE:
+        logger.warning(
+            "Promotion cluster search space too large (%d combinations across %d "
+            "candidates); falling back to single-winner selection",
+            search_space,
+            len(templates),
+        )
+        return _greedy_single_winner(templates)
+
+    best_counts: dict[int, int] = {template.promotion_id: 0 for template in templates}
+    best_total = Decimal("-1")
+
+    def backtrack(
+        index: int, remaining: dict[int, int], counts: dict[int, int], running_total: Decimal
+    ) -> None:
+        nonlocal best_counts, best_total
+        if index == len(templates):
+            if running_total > best_total:
+                best_total = running_total
+                best_counts = dict(counts)
+            return
+
+        template = templates[index]
+        bounds = [template.max_repeat]
+        for product_id, qty_per_repeat in template.per_repeat_consumption.items():
+            if qty_per_repeat > 0:
+                bounds.append(remaining.get(product_id, 0) // qty_per_repeat)
+        max_possible = min(bounds)
+
+        for count in range(max_possible, -1, -1):
+            for product_id, qty_per_repeat in template.per_repeat_consumption.items():
+                remaining[product_id] = remaining.get(product_id, 0) - qty_per_repeat * count
+            counts[template.promotion_id] = count
+            added = template.discount_per_repeat * count
+            backtrack(index + 1, remaining, counts, running_total + added)
+            for product_id, qty_per_repeat in template.per_repeat_consumption.items():
+                remaining[product_id] = remaining.get(product_id, 0) + qty_per_repeat * count
+
+        del counts[template.promotion_id]
+
+    backtrack(0, dict(cart_quantities), {}, Decimal("0"))
+    return best_counts
 
 
 class _UnionFind:
@@ -109,6 +195,16 @@ class PromotionService(CrudService[Promotion]):
     async def get_items(self, promotion_id: int) -> list[PromotionItem]:
         return await self._promotion_item_repository.list_by_promotion(promotion_id)
 
+    async def delete(self, entity_id: int) -> None:
+        await self.get_by_id(entity_id)
+        await self._promotion_item_repository.delete_by_promotion(entity_id)
+        try:
+            await self._repository.delete(entity_id)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(
+                "No se puede eliminar: esta promoción tiene ventas asociadas"
+            ) from exc
+
     async def select_winning_applications(
         self,
         cart_quantities: dict[int, int],
@@ -116,32 +212,48 @@ class PromotionService(CrudService[Promotion]):
         cart_unit_prices: dict[int, Decimal],
         on_date: date,
     ) -> list[PromotionApplication]:
-        """Picks, for each cluster of promotions that compete over overlapping
-        cart products, the single promotion with the greatest total discount
-        amount among those whose item conditions are fully satisfied by the
-        cart. Promotions targeting disjoint sets of products can all win at
-        once. See CLAUDE.md for the full algorithm description."""
-        candidates = await self._collect_satisfied_candidates(
+        """For each cluster of promotions that compete over overlapping cart
+        products (sharing at least one matched product), searches for the
+        combination of repeat counts across those candidates that maximizes
+        total discount without exceeding the cart's available quantity for
+        any shared product — not just a single "winner" per cluster.
+        Promotions targeting disjoint sets of products can all win at once,
+        each at their own maximal repeat count. See CLAUDE.md for the full
+        algorithm description."""
+        templates = await self._collect_satisfied_candidates(
             cart_quantities, cart_categories, cart_unit_prices, on_date
         )
-        if not candidates:
+        if not templates:
             return []
 
-        union_find = _UnionFind([candidate.promotion_id for candidate in candidates])
-        for i in range(len(candidates)):
-            for j in range(i + 1, len(candidates)):
-                if candidates[i].matched_products & candidates[j].matched_products:
-                    union_find.union(candidates[i].promotion_id, candidates[j].promotion_id)
+        union_find = _UnionFind([template.promotion_id for template in templates])
+        for i in range(len(templates)):
+            for j in range(i + 1, len(templates)):
+                if templates[i].matched_products & templates[j].matched_products:
+                    union_find.union(templates[i].promotion_id, templates[j].promotion_id)
 
-        groups: dict[int, list[_Candidate]] = {}
-        for candidate in candidates:
-            root = union_find.find(candidate.promotion_id)
-            groups.setdefault(root, []).append(candidate)
+        groups: dict[int, list[_CandidateTemplate]] = {}
+        for template in templates:
+            root = union_find.find(template.promotion_id)
+            groups.setdefault(root, []).append(template)
 
         applications: list[PromotionApplication] = []
         for group in groups.values():
-            winner = max(group, key=lambda c: (c.total_discount, -c.promotion_id))
-            applications.extend(winner.applications)
+            counts = _optimize_cluster(group, cart_quantities)
+            for template in group:
+                count = counts.get(template.promotion_id, 0)
+                if count <= 0:
+                    continue
+                for product_id, discount in template.per_repeat_discount.items():
+                    quantity = template.per_repeat_discount_quantity[product_id] * count
+                    applications.append(
+                        PromotionApplication(
+                            promotion_id=template.promotion_id,
+                            product_id=product_id,
+                            quantity=quantity,
+                            discount_amount=discount * count,
+                        )
+                    )
 
         applications.sort(key=lambda a: (a.promotion_id, a.product_id))
         return applications
@@ -152,8 +264,8 @@ class PromotionService(CrudService[Promotion]):
         cart_categories: dict[int, int],
         cart_unit_prices: dict[int, Decimal],
         on_date: date,
-    ) -> list[_Candidate]:
-        candidates: list[_Candidate] = []
+    ) -> list[_CandidateTemplate]:
+        templates: list[_CandidateTemplate] = []
         for promotion in await self._repository.list_active(on_date):
             lines = await self._promotion_item_repository.list_by_promotion(promotion.id)
             if not lines:
@@ -182,53 +294,49 @@ class PromotionService(CrudService[Promotion]):
             # behavior — min_quantity there is just a threshold gate ("10% off
             # if you buy 3+"), not a combo unit, so it still discounts
             # everything matched rather than only multiples of min_quantity.
-            repeat_count = (
-                min(available // line.min_quantity for _, line, available in matched)
-                if len(lines) >= 2
-                else None
+            is_combo = len(lines) >= 2
+
+            template = _CandidateTemplate(
+                promotion_id=promotion.id,
+                matched_products={product_id for product_id, _, _ in matched},
             )
 
-            applications: list[PromotionApplication] = []
-            total_discount = Decimal("0")
-            for product_id, line, available in matched:
-                if repeat_count is None:
+            if is_combo:
+                template.max_repeat = min(
+                    available // line.min_quantity for _, line, available in matched
+                )
+                for product_id, line, _available in matched:
+                    discount_quantity_per_repeat = (
+                        min(line.min_quantity, line.max_quantity)
+                        if line.max_quantity is not None
+                        else line.min_quantity
+                    )
+                    unit_price = cart_unit_prices.get(product_id, Decimal("0"))
+                    template.per_repeat_consumption[product_id] = line.min_quantity
+                    template.per_repeat_discount_quantity[product_id] = discount_quantity_per_repeat
+                    template.per_repeat_discount[product_id] = compute_line_discount(
+                        line.discount_type,
+                        line.discount_value,
+                        unit_price,
+                        discount_quantity_per_repeat,
+                    )
+            else:
+                template.max_repeat = 1
+                for product_id, line, available in matched:
                     effective_quantity = (
                         min(line.max_quantity, available)
                         if line.max_quantity is not None
                         else available
                     )
-                else:
-                    uncapped = line.min_quantity * repeat_count
-                    capped = (
-                        line.max_quantity * repeat_count
-                        if line.max_quantity is not None
-                        else uncapped
+                    unit_price = cart_unit_prices.get(product_id, Decimal("0"))
+                    template.per_repeat_consumption[product_id] = available
+                    template.per_repeat_discount_quantity[product_id] = effective_quantity
+                    template.per_repeat_discount[product_id] = compute_line_discount(
+                        line.discount_type, line.discount_value, unit_price, effective_quantity
                     )
-                    effective_quantity = min(available, uncapped, capped)
 
-                unit_price = cart_unit_prices.get(product_id, Decimal("0"))
-                discount = compute_line_discount(
-                    line.discount_type, line.discount_value, unit_price, effective_quantity
-                )
-                total_discount += discount
-                applications.append(
-                    PromotionApplication(
-                        promotion_id=promotion.id,
-                        product_id=product_id,
-                        quantity=effective_quantity,
-                        discount_amount=discount,
-                    )
-                )
-
-            candidates.append(
-                _Candidate(
-                    promotion_id=promotion.id,
-                    applications=applications,
-                    matched_products={product_id for product_id, _, _ in matched},
-                    total_discount=total_discount,
-                )
-            )
-        return candidates
+            templates.append(template)
+        return templates
 
     @staticmethod
     def _resolve_line_target(

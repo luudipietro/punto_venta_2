@@ -21,6 +21,7 @@ export function CategoriesPage() {
       useCreate={useCreateCategory}
       useUpdate={useUpdateCategory}
       useRemove={useDeleteCategory}
+      allowEdit={false}
     />
   )
 }

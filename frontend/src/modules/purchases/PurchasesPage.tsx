@@ -21,6 +21,8 @@ import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreatePurchase, usePurchases } from '@/hooks/usePurchases'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
+import { ProductQuickCreateDialog } from '@/modules/purchases/ProductQuickCreateDialog'
+import { StockQuickCreateDialog } from '@/modules/purchases/StockQuickCreateDialog'
 import { formatCurrency } from '@/lib/format'
 import type { PurchaseItemInput } from '@/api/purchase'
 
@@ -46,6 +48,12 @@ export function PurchasesPage() {
   const [isPaid, setIsPaid] = useState(false)
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null)
   const [paymentDate, setPaymentDate] = useState(today())
+  const [productQuickCreateOpen, setProductQuickCreateOpen] = useState(false)
+  const [stockQuickCreateOpen, setStockQuickCreateOpen] = useState(false)
+  const [stockQuickCreatePresetProductId, setStockQuickCreatePresetProductId] = useState<
+    number | undefined
+  >()
+  const [pendingItemKey, setPendingItemKey] = useState<string | null>(null)
 
   const { options: stockOptions } = useStockOptions(branchId)
 
@@ -184,16 +192,45 @@ export function PurchasesPage() {
                       </Button>
                     </div>
                   ))}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-fit gap-1.5"
-                    onClick={addItem}
-                    disabled={branchId === null}
-                  >
-                    <Plus className="size-3.5" />
-                    Agregar ítem
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-fit gap-1.5"
+                      onClick={addItem}
+                      disabled={branchId === null}
+                    >
+                      <Plus className="size-3.5" />
+                      Agregar ítem
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={branchId === null}
+                      onClick={() => {
+                        const key = crypto.randomUUID()
+                        setItems((prev) => [...prev, { key, stock_id: 0, quantity: 1, unit_cost: 0 }])
+                        setPendingItemKey(key)
+                        setProductQuickCreateOpen(true)
+                      }}
+                    >
+                      + Crear producto nuevo
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={branchId === null}
+                      onClick={() => {
+                        const key = crypto.randomUUID()
+                        setItems((prev) => [...prev, { key, stock_id: 0, quantity: 1, unit_cost: 0 }])
+                        setPendingItemKey(key)
+                        setStockQuickCreatePresetProductId(undefined)
+                        setStockQuickCreateOpen(true)
+                      }}
+                    >
+                      + Crear variante nueva
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="flex justify-end text-sm font-medium">Total: {formatCurrency(total)}</div>
@@ -312,6 +349,28 @@ export function PurchasesPage() {
           {selectedPurchaseId !== null && <PurchaseDetailPanel purchaseId={selectedPurchaseId} />}
         </DialogContent>
       </Dialog>
+
+      <ProductQuickCreateDialog
+        open={productQuickCreateOpen}
+        onOpenChange={setProductQuickCreateOpen}
+        onCreated={(product) => {
+          setStockQuickCreatePresetProductId(product.id)
+          setProductQuickCreateOpen(false)
+          setStockQuickCreateOpen(true)
+        }}
+      />
+      <StockQuickCreateDialog
+        open={stockQuickCreateOpen}
+        onOpenChange={setStockQuickCreateOpen}
+        branchId={branchId ?? 0}
+        presetProductId={stockQuickCreatePresetProductId}
+        onCreated={(stock) => {
+          if (pendingItemKey) updateItem(pendingItemKey, { stock_id: stock.id })
+          setStockQuickCreateOpen(false)
+          setStockQuickCreatePresetProductId(undefined)
+          setPendingItemKey(null)
+        }}
+      />
     </div>
   )
 }

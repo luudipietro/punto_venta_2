@@ -33,7 +33,7 @@ export function PromotionDetail({ promotionId }: { promotionId: number }) {
     <div className="flex flex-col gap-1.5">
       <p className="text-sm font-medium">{promotion.name}</p>
       <p className="text-xs text-muted-foreground">
-        Vigente {promotion.start_date} — {promotion.end_date}
+        Vigente {promotion.start_date} — {promotion.end_date ?? 'Sin fecha límite'}
       </p>
       <ul className="mt-1 flex flex-col gap-1 text-sm">
         {promotion.items.map((item) => (

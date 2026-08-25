@@ -671,6 +671,167 @@ async def test_create_sale_combo_promotion_wins_over_single_item_promotion(
     assert all(item.promotion_id == combo.id for item in items)
 
 
+async def test_create_sale_applies_optimal_combination_of_overlapping_promotions(
+    db_session: AsyncSession,
+) -> None:
+    """Integration-level version of
+    test_select_winning_applications_splits_optimal_combination_across_cluster:
+    Combo A (Short+Remera) and Combo B (Short+Remera+Medias) both win at
+    once through a real create_sale call, for the optimal $6500 total
+    instead of picking only the single best candidate ($6000/$4500)."""
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    shorts = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Short",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("15.00"),
+            price=Decimal("2000.00"),
+        )
+    )
+    shirt = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10.00"),
+            price=Decimal("2000.00"),
+        )
+    )
+    socks = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Medias",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("5.00"),
+            price=Decimal("2000.00"),
+        )
+    )
+    shorts_stock = await _seed_stock_for_product_in_branch(db_session, shorts, branch, 5)
+    shirt_stock = await _seed_stock_for_product_in_branch(db_session, shirt, branch, 5)
+    socks_stock = await _seed_stock_for_product_in_branch(db_session, socks, branch, 5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+
+    combo_a = await promotion_service.create(
+        Promotion(name="Combo A", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1000"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1000"),
+                product_id=shirt.id,
+            ),
+        ],
+    )
+    combo_b = await promotion_service.create(
+        Promotion(name="Combo B", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=shirt.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=socks.id,
+            ),
+        ],
+    )
+    service = _build_sale_service(db_session)
+
+    sale = await service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[
+            SaleItem(stock_id=shorts_stock.id, quantity=2, unit_price=Decimal("2000.00")),
+            SaleItem(stock_id=shirt_stock.id, quantity=2, unit_price=Decimal("2000.00")),
+            SaleItem(stock_id=socks_stock.id, quantity=1, unit_price=Decimal("2000.00")),
+        ],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("3500.00"),
+                amount_with_surcharge=Decimal("3500.00"),
+            )
+        ],
+    )
+
+    # subtotal = 4000 + 4000 + 2000 = 10000; optimal discount = 6500 (combo B
+    # once + combo A once on the remaining short+shirt), not 6000 (the old
+    # single-winner-per-cluster behavior would have picked only one combo).
+    assert sale.promotion_discount == Decimal("6500.00")
+    assert sale.total == Decimal("3500.00")
+    # Both promotions contributed to the total above — but SaleItem.promotion_id
+    # is a single scalar per line, so when two different promotions cover the
+    # same product (shorts/shirt here), the line ends up tagged with only the
+    # last-processed one. This is a known, accepted display-only limitation
+    # (see CLAUDE.md): the money is always correct, only the per-line "promo"
+    # badge can be incomplete in this specific scenario.
+    items = await service.get_items(sale.id)
+    assert {item.promotion_id for item in items} == {combo_b.id}
+    assert combo_a.id != combo_b.id
+
+
+async def test_delete_promotion_used_in_a_sale_returns_friendly_error(
+    db_session: AsyncSession,
+) -> None:
+    stock, product = await _seed_stock_with_product(db_session, quantity=5)
+    payment_method = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo")
+    )
+    today = date.today()
+    promotion_service = _build_promotion_service(db_session)
+
+    promotion = await promotion_service.create(
+        Promotion(name="10% Remera", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product.id,
+            )
+        ],
+    )
+    service = _build_sale_service(db_session)
+    await service.create_sale(
+        branch_id=stock.branch_id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=payment_method.id,
+                amount_without_surcharge=Decimal("18.00"),
+                amount_with_surcharge=Decimal("18.00"),
+            )
+        ],
+    )
+
+    with pytest.raises(BusinessRuleViolationError):
+        await promotion_service.delete(promotion.id)
+
+
 async def test_create_sale_with_surcharge_covers_total_from_net_amount(
     db_session: AsyncSession,
 ) -> None:

@@ -10,10 +10,6 @@ class ColorCreate(ColorBase):
     pass
 
 
-class ColorUpdate(ColorBase):
-    pass
-
-
 class ColorRead(ColorBase):
     model_config = ConfigDict(from_attributes=True)
 

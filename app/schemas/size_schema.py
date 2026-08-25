@@ -9,10 +9,6 @@ class SizeCreate(SizeBase):
     pass
 
 
-class SizeUpdate(SizeBase):
-    pass
-
-
 class SizeRead(SizeBase):
     model_config = ConfigDict(from_attributes=True)
 

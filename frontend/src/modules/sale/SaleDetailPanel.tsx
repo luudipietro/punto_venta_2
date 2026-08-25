@@ -23,7 +23,7 @@ import { useCancelSale, useSale } from '@/hooks/useSales'
 import { useCustomer } from '@/hooks/useCustomers'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatTimestamp } from '@/lib/format'
 import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
 import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
@@ -68,7 +68,7 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
         <div>
           <p className="text-sm font-medium">Venta #{sale.id}</p>
           <p className="text-xs text-muted-foreground">
-            {new Date(sale.created_at).toLocaleString('es-AR')}
+            {formatTimestamp(sale.created_at)}
           </p>
           {sale.customer_id !== null && <SaleCustomerLabel customerId={sale.customer_id} />}
         </div>

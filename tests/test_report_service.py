@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.branch import Branch
@@ -15,6 +16,7 @@ from app.domain.purchase_item import PurchaseItem
 from app.domain.sale_item import SaleItem
 from app.domain.sale_payment import SalePayment
 from app.domain.stock import Stock
+from app.infrastructure.db.models.sale_model import SaleModel
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.brand_repository import SqlAlchemyBrandRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
@@ -380,3 +382,54 @@ async def test_daily_cash_balance_includes_exchange_cash_impact(db_session: Asyn
     assert day.balance == Decimal("0.00")
     assert exchange.branch_id == branch.id
     assert exchange.created_at is not None
+
+
+async def test_daily_cash_balance_groups_late_night_sale_into_correct_art_day(
+    db_session: AsyncSession,
+) -> None:
+    """A sale stored at 01:00 UTC is 22:00 ART the PREVIOUS day (ART = UTC-3),
+    so the report must bucket it into the day before the naive UTC date."""
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    product = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10"),
+            price=Decimal("20"),
+        )
+    )
+    stock = await SqlAlchemyStockRepository(db_session).create(
+        Stock(product_id=product.id, branch_id=branch.id, quantity=10, color_id=None, size_id=None)
+    )
+    cash = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo", is_cash=True)
+    )
+
+    sale_service = _build_sale_service(db_session)
+    sale = await sale_service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=cash.id,
+                amount_without_surcharge=Decimal("20.00"),
+                amount_with_surcharge=Decimal("20.00"),
+            )
+        ],
+    )
+
+    utc_created_at = datetime(2026, 3, 10, 1, 0, 0)
+    await db_session.execute(
+        update(SaleModel).where(SaleModel.id == sale.id).values(created_at=utc_created_at)
+    )
+    await db_session.flush()
+
+    report_service = _build_report_service(db_session)
+    balances = await report_service.daily_cash_balance(branch.id)
+
+    assert len(balances) == 1
+    assert balances[0].date == date(2026, 3, 9)

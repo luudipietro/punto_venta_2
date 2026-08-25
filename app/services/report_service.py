@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,16 @@ from app.repositories.sale_payment_repository import (
     SqlAlchemySalePaymentRepository,
 )
 from app.repositories.sale_repository import SaleRepository, SqlAlchemySaleRepository
+
+_ART = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _to_art_date(naive_utc: datetime) -> date:
+    """Sale/Exchange.created_at is stored naive but is effectively UTC
+    (server_default=func.now()). Attach UTC tzinfo explicitly, then convert
+    to Argentina time before taking .date() — otherwise a sale made late at
+    night ART groups into the wrong calendar day (UTC is 3h ahead of ART)."""
+    return naive_utc.replace(tzinfo=UTC).astimezone(_ART).date()
 
 
 class ReportService:
@@ -78,7 +89,7 @@ class ReportService:
         cash_by_date: dict[date, Decimal] = {}
         total_by_date: dict[date, Decimal] = {}
         for sale in sales:
-            sale_date = sale.created_at.date()
+            sale_date = _to_art_date(sale.created_at)
             total_by_date[sale_date] = total_by_date.get(sale_date, Decimal("0")) + sale.total
             payments = await self._sale_payment_repository.list_by_sale(sale.id)
             cash_amount = sum(
@@ -116,7 +127,7 @@ class ReportService:
                 ),
                 Decimal("0"),
             )
-            exchange_date = exchange.created_at.date()
+            exchange_date = _to_art_date(exchange.created_at)
             exchanges_by_date[exchange_date] = (
                 exchanges_by_date.get(exchange_date, Decimal("0")) + cash_amount
             )

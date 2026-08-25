@@ -10,10 +10,6 @@ class BrandCreate(BrandBase):
     pass
 
 
-class BrandUpdate(BrandBase):
-    pass
-
-
 class BrandRead(BrandBase):
     model_config = ConfigDict(from_attributes=True)
 

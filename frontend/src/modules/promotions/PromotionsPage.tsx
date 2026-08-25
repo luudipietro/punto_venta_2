@@ -69,7 +69,7 @@ export function PromotionsPage() {
   function openCreateDialog() {
     setEditingId(null)
     setName('')
-    setStartDate('')
+    setStartDate(new Date().toISOString().slice(0, 10))
     setEndDate('')
     setItems([emptyItem()])
     setTargetPriceMode(false)
@@ -83,7 +83,7 @@ export function PromotionsPage() {
     setEditingId(promotion.id)
     setName(promotion.name)
     setStartDate(promotion.start_date)
-    setEndDate(promotion.end_date)
+    setEndDate(promotion.end_date ?? '')
     setItems(
       promotion.items.map((item) => ({
         key: crypto.randomUUID(),
@@ -122,35 +122,43 @@ export function PromotionsPage() {
   const itemsFingerprint = items.map((item) => `${item.product_id}:${item.min_quantity}`).join(',')
   useEffect(() => {
     if (!targetPriceMode || !allProductLines || items.length === 0) return
-    const totalOriginal = items.reduce((sum, item) => {
+    const lineOriginals = items.map((item) => {
       const product = products?.find((p) => p.id === item.product_id)
-      return sum + (product?.price ?? 0) * (item.min_quantity || 1)
-    }, 0)
+      return (product?.price ?? 0) * (item.min_quantity || 1)
+    })
+    const totalOriginal = lineOriginals.reduce((sum, value) => sum + value, 0)
     if (totalOriginal <= 0) return
     const totalDiscount = totalOriginal - targetPrice
 
-    setItems((prev) => {
-      if (distribution === 'percentage') {
-        const rate = totalDiscount / totalOriginal
-        const value = Math.round(rate * 100 * 100) / 100
-        return prev.map((item) => ({ ...item, discount_type: 'percentage', discount_value: value }))
-      }
-      const share = Math.round((totalDiscount / prev.length) * 100) / 100
-      return prev.map((item, index) => {
-        const isLast = index === prev.length - 1
-        const value = isLast
-          ? Math.round((totalDiscount - share * (prev.length - 1)) * 100) / 100
-          : share
-        return { ...item, discount_type: 'fixed_amount', discount_value: value }
-      })
-    })
+    // Always store target-price-mode lines as fixed_amount, never
+    // percentage: a fixed dollar amount reproduces exactly through the
+    // backend's compute_line_discount (no re-quantization against a % at
+    // sale time), and "distribute the total discount + last line absorbs
+    // the rounding remainder" is what guarantees the lines sum back to
+    // exactly totalDiscount instead of drifting by a cent or two.
+    const weights = distribution === 'percentage' ? lineOriginals : lineOriginals.map(() => 1)
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
+    const raw = weights.map((weight) => (totalWeight > 0 ? (totalDiscount * weight) / totalWeight : 0))
+    const rounded = raw.map((value) => Math.round(value * 100) / 100)
+    const roundedSum = rounded.slice(0, -1).reduce((sum, value) => sum + value, 0)
+    const lastValue = Math.round((totalDiscount - roundedSum) * 100) / 100
+    const dollarDiscounts = rounded.map((value, index) =>
+      index === rounded.length - 1 ? lastValue : value,
+    )
+
+    setItems((prev) =>
+      prev.map((item, index) => ({
+        ...item,
+        discount_type: 'fixed_amount',
+        discount_value: dollarDiscounts[index] ?? 0,
+      })),
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetPriceMode, targetPrice, distribution, allProductLines, itemsFingerprint, products])
 
   const canSubmit =
     name.trim() !== '' &&
     startDate !== '' &&
-    endDate !== '' &&
     items.length > 0 &&
     items.every((item) => (item.targetType === 'product' ? item.product_id : item.category_id))
 
@@ -158,7 +166,7 @@ export function PromotionsPage() {
     const payload = {
       name,
       start_date: startDate,
-      end_date: endDate,
+      end_date: endDate || null,
       active: true,
       items: items.map((item) => ({
         product_id: item.targetType === 'product' ? item.product_id : null,
@@ -229,6 +237,7 @@ export function PromotionsPage() {
                       value={endDate}
                       onChange={(event) => setEndDate(event.target.value)}
                     />
+                    <p className="text-xs text-muted-foreground">Dejar vacío para sin fecha límite</p>
                   </div>
                 </div>
 
@@ -421,7 +430,7 @@ export function PromotionsPage() {
                 <TableRow key={promotion.id}>
                   <TableCell>{promotion.name}</TableCell>
                   <TableCell>
-                    {promotion.start_date} — {promotion.end_date}
+                    {promotion.start_date} — {promotion.end_date ?? 'Sin fecha límite'}
                   </TableCell>
                   <TableCell>
                     <Badge variant={promotion.active ? 'default' : 'secondary'}>

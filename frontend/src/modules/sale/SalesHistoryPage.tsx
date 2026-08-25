@@ -35,6 +35,18 @@ import { useDailyBalance } from '@/hooks/useDailyBalance'
 import { usePurchases } from '@/hooks/usePurchases'
 import { useSales } from '@/hooks/useSales'
 import { formatCurrency, formatDate } from '@/lib/format'
+
+const artDateKeyFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Argentina/Buenos_Aires',
+})
+
+/** Same UTC->ART day-bucketing as ReportService.daily_cash_balance's
+ * _to_art_date, done client-side so this page's per-day breakdown groups
+ * sales/exchanges into the same day the backend's report used. */
+function toArtDateKey(isoDateTime: string): string {
+  const utcSuffixed = isoDateTime.endsWith('Z') ? isoDateTime : `${isoDateTime}Z`
+  return artDateKeyFormatter.format(new Date(utcSuffixed))
+}
 import { SaleDetailPanel } from '@/modules/sale/SaleDetailPanel'
 import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
 import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
@@ -238,7 +250,7 @@ export function SalesHistoryPage() {
                 const isExpanded = expandedDate === day.date
                 const daySales = sales
                   ?.filter(
-                    (sale) => sale.branch_id === branchId && sale.created_at.slice(0, 10) === day.date,
+                    (sale) => sale.branch_id === branchId && toArtDateKey(sale.created_at) === day.date,
                   )
                   .sort((a, b) => b.id - a.id)
                 const dayExpenses = expenses?.filter(
@@ -254,7 +266,7 @@ export function SalesHistoryPage() {
                   .sort((a, b) => b.id - a.id)
                 const dayExchanges = exchanges?.filter(
                   (exchange) =>
-                    exchange.branch_id === branchId && exchange.created_at.slice(0, 10) === day.date,
+                    exchange.branch_id === branchId && toArtDateKey(exchange.created_at) === day.date,
                 )
                 return (
                   <Fragment key={day.date}>

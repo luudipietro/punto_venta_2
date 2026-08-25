@@ -12,6 +12,7 @@ export function SizesPage() {
       useCreate={useCreateSize}
       useUpdate={useUpdateSize}
       useRemove={useDeleteSize}
+      allowEdit={false}
     />
   )
 }

@@ -25,7 +25,7 @@ export interface PromotionItemRead {
 export interface PromotionCreate {
   name: string
   start_date: string
-  end_date: string
+  end_date: string | null
   active?: boolean
   items: PromotionItemInput[]
 }
@@ -34,7 +34,7 @@ export interface PromotionRead {
   id: number
   name: string
   start_date: string
-  end_date: string
+  end_date: string | null
   active: boolean
 }
 

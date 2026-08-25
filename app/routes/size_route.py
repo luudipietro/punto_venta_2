@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 
 from app.domain.size import Size
-from app.schemas.size_schema import SizeCreate, SizeRead, SizeUpdate
+from app.schemas.size_schema import SizeCreate, SizeRead
 from app.services.size_service import SizeService, get_size_service
 
 router = APIRouter(prefix="/sizes", tags=["Sizes"])
@@ -22,13 +22,6 @@ async def create_size(
     payload: SizeCreate, service: SizeService = Depends(get_size_service)
 ) -> Size:
     return await service.create(Size(**payload.model_dump()))
-
-
-@router.put("/{size_id}", response_model=SizeRead)
-async def update_size(
-    size_id: int, payload: SizeUpdate, service: SizeService = Depends(get_size_service)
-) -> Size:
-    return await service.update(size_id, Size(**payload.model_dump()))
 
 
 @router.delete("/{size_id}", status_code=status.HTTP_204_NO_CONTENT)

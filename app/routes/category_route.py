@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 
 from app.domain.category import Category
-from app.schemas.category_schema import CategoryCreate, CategoryRead, CategoryUpdate
+from app.schemas.category_schema import CategoryCreate, CategoryRead
 from app.services.category_service import CategoryService, get_category_service
 
 router = APIRouter(prefix="/categories", tags=["Categories"])
@@ -26,15 +26,6 @@ async def create_category(
     payload: CategoryCreate, service: CategoryService = Depends(get_category_service)
 ) -> Category:
     return await service.create(Category(**payload.model_dump()))
-
-
-@router.put("/{category_id}", response_model=CategoryRead)
-async def update_category(
-    category_id: int,
-    payload: CategoryUpdate,
-    service: CategoryService = Depends(get_category_service),
-) -> Category:
-    return await service.update(category_id, Category(**payload.model_dump()))
 
 
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)

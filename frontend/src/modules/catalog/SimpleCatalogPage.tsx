@@ -36,6 +36,11 @@ interface SimpleCatalogPageProps<TRead extends WithId, TInput extends object> {
   useCreate: () => UseMutationResult<TRead, Error, TInput>
   useUpdate: () => UseMutationResult<TRead, Error, { id: number; payload: TInput }>
   useRemove: () => UseMutationResult<void, Error, number>
+  /** Set to false to make this catalog create/delete-only (no "Editar"
+   * action) — used for entities where renaming after creation could make
+   * historical stock/sales records misleading (Color, Size, Brand,
+   * Category). Defaults to true. */
+  allowEdit?: boolean
 }
 
 /** Generic list+create+edit+delete screen for the simple name-only (or
@@ -51,6 +56,7 @@ export function SimpleCatalogPage<TRead extends WithId, TInput extends object>({
   useCreate,
   useUpdate,
   useRemove,
+  allowEdit = true,
 }: SimpleCatalogPageProps<TRead, TInput>) {
   const { data: items, isLoading } = useList()
   const createMutation = useCreate()
@@ -189,9 +195,11 @@ export function SimpleCatalogPage<TRead extends WithId, TInput extends object>({
                     </TableCell>
                   ))}
                   <TableCell className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
-                      <Pencil className="size-4" />
-                    </Button>
+                    {allowEdit && (
+                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
+                        <Pencil className="size-4" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)}>
                       <Trash2 className="size-4" />
                     </Button>

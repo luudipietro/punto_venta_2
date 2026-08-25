@@ -15,6 +15,7 @@ export function BrandsPage() {
       useCreate={useCreateBrand}
       useUpdate={useUpdateBrand}
       useRemove={useDeleteBrand}
+      allowEdit={false}
     />
   )
 }

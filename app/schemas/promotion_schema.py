@@ -18,7 +18,7 @@ class PromotionItemInput(BaseModel):
 class PromotionCreate(BaseModel):
     name: str
     start_date: date
-    end_date: date
+    end_date: date | None = None
     active: bool = True
     items: list[PromotionItemInput] = Field(min_length=1)
 
@@ -46,7 +46,7 @@ class PromotionRead(BaseModel):
     id: int
     name: str
     start_date: date
-    end_date: date
+    end_date: date | None
     active: bool
 
 

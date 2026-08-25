@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessRuleViolationError
+from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from app.domain.brand import Brand
 from app.domain.category import Category
 from app.domain.product import Product
@@ -210,6 +210,13 @@ async def test_select_winning_applications_ignores_out_of_range_promotion(
 async def test_select_winning_applications_picks_highest_total_discount_in_overlapping_group(
     db_session: AsyncSession,
 ) -> None:
+    """With only 1 unit of each shared product, no combination of two
+    overlapping promotions can ever fit at once — this is the degenerate
+    case where the optimal combination search converges to a single winner,
+    not evidence that only one promotion can ever apply from a cluster (see
+    test_select_winning_applications_splits_optimal_combination_across_cluster
+    below for the case where splitting across promotions is possible and
+    correct)."""
     shorts = await _seed_product(db_session, "Short")
     shirt = await _seed_product(db_session, "Remera")
     socks = await _seed_product(db_session, "Medias")
@@ -289,6 +296,96 @@ async def test_select_winning_applications_picks_highest_total_discount_in_overl
 
     assert {a.promotion_id for a in applications} == {combo_ab.id}
     assert sum((a.discount_amount for a in applications), Decimal("0")) == Decimal("7.50")
+
+
+async def test_select_winning_applications_splits_optimal_combination_across_cluster(
+    db_session: AsyncSession,
+) -> None:
+    """Promo A (Short+Remera, $4000 total when it repeats twice) vs Promo B
+    (Short+Remera+Medias, $4500 total but limited to 1 repeat by the single
+    Media) over a cart of 2 Short + 2 Remera + 1 Media: picking only the
+    single highest-total candidate per cluster (the old behavior) would
+    choose A alone ($8000) and discard B entirely. The true optimum applies
+    B once (consuming 1 Short + 1 Remera + 1 Media, $4500) AND A once on the
+    remaining 1 Short + 1 Remera ($2000), for $6500 total — this is the
+    exact bug the user reported."""
+    shorts = await _seed_product(db_session, "Short")
+    shirt = await _seed_product(db_session, "Remera")
+    socks = await _seed_product(db_session, "Medias")
+    service = _build_promotion_service(db_session)
+    today = date.today()
+
+    cart_quantities = {shorts.id: 2, shirt.id: 2, socks.id: 1}
+    cart_categories = {
+        shorts.id: shorts.category_id,
+        shirt.id: shirt.category_id,
+        socks.id: socks.category_id,
+    }
+    cart_unit_prices = {
+        shorts.id: Decimal("2000.00"),
+        shirt.id: Decimal("2000.00"),
+        socks.id: Decimal("2000.00"),
+    }
+
+    # Promo A: 1000 fixed off each of Short+Remera per repeat -> 2000/repeat,
+    # cart holds 2 complete sets -> 4000 total if applied alone.
+    combo_a = await service.create(
+        Promotion(name="Combo A", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1000"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1000"),
+                product_id=shirt.id,
+            ),
+        ],
+    )
+    # Promo B: 1500 fixed off each of Short+Remera+Medias per repeat, but
+    # only 1 Media in the cart caps it to 1 repeat -> 4500 total.
+    combo_b = await service.create(
+        Promotion(name="Combo B", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=shorts.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=shirt.id,
+            ),
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.FIXED_AMOUNT,
+                discount_value=Decimal("1500"),
+                product_id=socks.id,
+            ),
+        ],
+    )
+
+    applications = await service.select_winning_applications(
+        cart_quantities, cart_categories, cart_unit_prices, today
+    )
+
+    assert {a.promotion_id for a in applications} == {combo_a.id, combo_b.id}
+    assert sum((a.discount_amount for a in applications), Decimal("0")) == Decimal("6500.00")
+    combo_a_shorts = [
+        a for a in applications if a.promotion_id == combo_a.id and a.product_id == shorts.id
+    ]
+    assert sum(a.quantity for a in combo_a_shorts) == 1
+    combo_b_shorts = [
+        a for a in applications if a.promotion_id == combo_b.id and a.product_id == shorts.id
+    ]
+    assert sum(a.quantity for a in combo_b_shorts) == 1
 
 
 async def test_select_winning_applications_disjoint_promotions_both_apply(
@@ -376,3 +473,56 @@ async def test_select_winning_applications_gift_line_differing_discount_per_line
     # Only 1 pair of socks (min_quantity) is discounted, not all 3 in the cart.
     assert by_product[socks.id].discount_amount == Decimal("5.00")
     assert by_product[socks.id].quantity == 1
+
+
+async def test_delete_promotion_with_no_sales_succeeds_and_removes_its_items(
+    db_session: AsyncSession,
+) -> None:
+    product = await _seed_product(db_session)
+    service = _build_promotion_service(db_session)
+    today = date.today()
+
+    promotion = await service.create(
+        Promotion(name="10% Remera", start_date=today, end_date=today),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product.id,
+            )
+        ],
+    )
+
+    await service.delete(promotion.id)
+
+    with pytest.raises(EntityNotFoundError):
+        await service.get_by_id(promotion.id)
+    assert await service.get_items(promotion.id) == []
+
+
+async def test_promotion_with_no_end_date_stays_active_indefinitely(
+    db_session: AsyncSession,
+) -> None:
+    product = await _seed_product(db_session)
+    service = _build_promotion_service(db_session)
+    today = date.today()
+
+    promotion = await service.create(
+        Promotion(name="Sin fecha límite", start_date=today, end_date=None),
+        items=[
+            PromotionItem(
+                promotion_id=None,
+                discount_type=DiscountType.PERCENTAGE,
+                discount_value=Decimal("10"),
+                product_id=product.id,
+            )
+        ],
+    )
+
+    fetched = await service.get_by_id(promotion.id)
+    assert fetched.end_date is None
+
+    far_future = today + timedelta(days=3650)
+    active = await SqlAlchemyPromotionRepository(db_session).list_active(far_future)
+    assert any(p.id == promotion.id for p in active)
