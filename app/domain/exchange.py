@@ -8,3 +8,4 @@ class Exchange:
     branch_id: int
     id: int | None = None
     created_at: datetime | None = None
+    cancelled_at: datetime | None = None

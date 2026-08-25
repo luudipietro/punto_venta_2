@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -48,6 +49,17 @@ async def engine() -> AsyncGenerator[AsyncEngine, None]:
         poolclass=StaticPool,
         connect_args={"check_same_thread": False},
     )
+
+    # SQLite ignores FK constraints unless explicitly told to enforce them
+    # per-connection — without this, tests can't catch the IntegrityError ->
+    # BusinessRuleViolationError translation that real Postgres would trigger
+    # (e.g. deleting a Stock/Product still referenced elsewhere).
+    @event.listens_for(test_engine.sync_engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

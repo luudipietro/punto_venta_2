@@ -47,6 +47,14 @@ class StockService(CrudService[Stock]):
         await self._ensure_references_exist(stock)
         return await super().update(entity_id, stock)
 
+    async def delete(self, entity_id: int) -> None:
+        try:
+            await super().delete(entity_id)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(
+                "No se puede eliminar: este stock tiene ventas, compras o cambios asociados"
+            ) from exc
+
     async def decrease_quantity(self, stock_id: int, amount: int) -> Stock:
         stock = await self.get_by_id(stock_id)
         if stock.quantity < amount:

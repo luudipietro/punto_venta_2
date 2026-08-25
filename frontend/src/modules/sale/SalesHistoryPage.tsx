@@ -1,8 +1,18 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,14 +29,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
-import { useCreateExpense, useExpenses } from '@/hooks/useExpenses'
+import { useCreateExpense, useDeleteExpense, useExpenses } from '@/hooks/useExpenses'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { useDailyBalance } from '@/hooks/useDailyBalance'
 import { usePurchases } from '@/hooks/usePurchases'
 import { useSales } from '@/hooks/useSales'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { SaleDetailPanel } from '@/modules/sale/SaleDetailPanel'
 import { PurchaseDetailPanel } from '@/modules/purchases/PurchaseDetailPanel'
+import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
 import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 import type { ExpenseInput } from '@/api/expense'
 
@@ -56,12 +67,28 @@ export function SalesHistoryPage() {
   const { data: purchases } = usePurchases()
   const { data: exchanges } = useExchanges()
   const createExpenseMutation = useCreateExpense()
+  const deleteExpenseMutation = useDeleteExpense()
 
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<ExpenseInput>(emptyExpense(0))
   const [expandedDate, setExpandedDate] = useState<string | null>(null)
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null)
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null)
+  const [selectedExchangeId, setSelectedExchangeId] = useState<number | null>(null)
+  const [expenseToDelete, setExpenseToDelete] = useState<number | null>(null)
+
+  async function handleDeleteExpense() {
+    if (expenseToDelete === null) return
+    try {
+      await deleteExpenseMutation.mutateAsync(expenseToDelete)
+      await queryClient.invalidateQueries({ queryKey: ['daily-balance', branchId] })
+      toast.success('Gasto eliminado')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
+    } finally {
+      setExpenseToDelete(null)
+    }
+  }
 
   function openCreateDialog() {
     if (branchId === null) return
@@ -242,7 +269,7 @@ export function SalesHistoryPage() {
                           <ChevronRight className="size-4" />
                         )}
                       </TableCell>
-                      <TableCell>{day.date}</TableCell>
+                      <TableCell>{formatDate(day.date)}</TableCell>
                       <TableCell>{formatCurrency(day.sales_cash_total)}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatCurrency(day.sales_total)}
@@ -300,7 +327,17 @@ export function SalesHistoryPage() {
                                           )?.name ?? '-'}
                                         </span>
                                       </span>
-                                      <span>{formatCurrency(expense.amount)}</span>
+                                      <span className="flex items-center gap-2">
+                                        {formatCurrency(expense.amount)}
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-6"
+                                          onClick={() => setExpenseToDelete(expense.id)}
+                                        >
+                                          <Trash2 className="size-3.5" />
+                                        </Button>
+                                      </span>
                                     </div>
                                   ))}
                                 </div>
@@ -344,7 +381,11 @@ export function SalesHistoryPage() {
                               {dayExchanges?.length ? (
                                 <div className="flex flex-col gap-1">
                                   {dayExchanges.map((exchange) => (
-                                    <ExchangeCashRow key={exchange.id} exchangeId={exchange.id} />
+                                    <ExchangeCashRow
+                                      key={exchange.id}
+                                      exchangeId={exchange.id}
+                                      onClick={() => setSelectedExchangeId(exchange.id)}
+                                    />
                                   ))}
                                 </div>
                               ) : (
@@ -389,14 +430,51 @@ export function SalesHistoryPage() {
           {selectedPurchaseId !== null && <PurchaseDetailPanel purchaseId={selectedPurchaseId} />}
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={selectedExchangeId !== null}
+        onOpenChange={(isOpen) => !isOpen && setSelectedExchangeId(null)}
+      >
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de cambio</DialogTitle>
+          </DialogHeader>
+          {selectedExchangeId !== null && <ExchangeDetailPanel exchangeId={selectedExchangeId} />}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={expenseToDelete !== null}
+        onOpenChange={(isOpen) => !isOpen && setExpenseToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar este gasto?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se va a borrar por completo y va a dejar de contar en el balance de caja de ese día.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteExpense}>Eliminar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
 
 /** Shows one exchange's cash impact (positive = customer paid more, negative
- * = refund) — needs the detail endpoint since the list one doesn't include
- * payments. */
-function ExchangeCashRow({ exchangeId }: { exchangeId: number }) {
+ * = refund) and its money difference — needs the detail endpoint since the
+ * list one doesn't include payments/balance. Clickable to open the full
+ * detail panel, same as sales/purchases rows. */
+function ExchangeCashRow({
+  exchangeId,
+  onClick,
+}: {
+  exchangeId: number
+  onClick: () => void
+}) {
   const { data: exchange } = useExchange(exchangeId)
   const { data: paymentMethods } = usePaymentMethods()
 
@@ -409,12 +487,22 @@ function ExchangeCashRow({ exchangeId }: { exchangeId: number }) {
     .reduce((sum, payment) => sum + payment.amount, 0)
 
   return (
-    <div className="rounded-md border bg-background px-3 py-2 text-sm">
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-md border bg-background px-3 py-2 text-left text-sm hover:border-primary"
+    >
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
           Cambio #{exchange.id} (venta #{exchange.sale_id})
+          {exchange.cancelled_at !== null && <Badge variant="destructive">Cancelado</Badge>}
         </span>
-        <span>{formatCurrency(cashTotal)}</span>
+        <span className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            Dif.: {formatCurrency(exchange.balance)}
+          </span>
+          <span>{formatCurrency(cashTotal)}</span>
+        </span>
       </div>
       <div className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
         {exchange.returned_items.length > 0 && (
@@ -424,6 +512,6 @@ function ExchangeCashRow({ exchangeId }: { exchangeId: number }) {
           <span>Entrega: <ExchangeItemsList items={exchange.new_items} /></span>
         )}
       </div>
-    </div>
+    </button>
   )
 }

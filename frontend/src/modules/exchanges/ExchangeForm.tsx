@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useCreateExchange } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
+import { formatCurrency } from '@/lib/format'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 import type { SaleDetailRead } from '@/api/sale'
 import type { ExchangeItemInput, ExchangePaymentInput } from '@/api/exchange'
@@ -45,6 +46,12 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
   const [returns, setReturns] = useState<ReturnDraft[]>([])
   const [newItems, setNewItems] = useState<NewItemDraft[]>([])
   const [payments, setPayments] = useState<PaymentDraft[]>([])
+  const [waiveRefund, setWaiveRefund] = useState(false)
+
+  const returnedTotal = returns.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
+  const newTotal = newItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
+  const balance = newTotal - returnedTotal
+  const canWaiveRefund = balance < 0
 
   function toggleReturnItem(stockId: number, unitPrice: number, maxQuantity: number, checked: boolean) {
     setReturns((prev) =>
@@ -93,6 +100,7 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
         })),
         new_items: newItems.map(({ stock_id, quantity, unit_price }) => ({ stock_id, quantity, unit_price })),
         payments: payments.map(({ payment_method_id, amount }) => ({ payment_method_id, amount })),
+        waive_refund: canWaiveRefund && waiveRefund,
       })
       toast.success('Cambio/devolución registrado')
       onSuccess()
@@ -201,8 +209,31 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
         </div>
       </div>
 
+      <div className="flex items-center justify-between rounded-md border p-2 text-sm">
+        <span className="text-muted-foreground">
+          {balance >= 0 ? 'El cliente debe pagar' : 'Diferencia a favor del cliente'}
+        </span>
+        <span className="font-medium">{formatCurrency(Math.abs(balance))}</span>
+      </div>
+
+      {canWaiveRefund && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={waiveRefund}
+            onChange={(event) => setWaiveRefund(event.target.checked)}
+          />
+          No reembolsar la diferencia (queda a favor del negocio)
+        </label>
+      )}
+
       <div>
         <p className="mb-1.5 text-sm font-medium">Pagos (positivo = cliente paga más, negativo = reembolso)</p>
+        {waiveRefund && canWaiveRefund && (
+          <p className="mb-1.5 text-xs text-muted-foreground">
+            No hace falta cargar un pago: la diferencia se registra como no reembolsada.
+          </p>
+        )}
         <div className="flex flex-col gap-2">
           {payments.map((payment) => (
             <div key={payment.key} className="flex items-center gap-2">

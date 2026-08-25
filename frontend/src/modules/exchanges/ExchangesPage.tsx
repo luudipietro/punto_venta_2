@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,6 +15,7 @@ import { useBranches } from '@/hooks/useBranches'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { useSale, useSales } from '@/hooks/useSales'
 import { formatCurrency } from '@/lib/format'
+import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
 import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 
@@ -26,6 +28,7 @@ export function ExchangesPage() {
   const [saleId, setSaleId] = useState<number | null>(null)
   const { data: sale } = useSale(saleId ?? undefined)
   const [branchFilter, setBranchFilter] = useState<number | 'all'>('all')
+  const [selectedExchangeId, setSelectedExchangeId] = useState<number | null>(null)
 
   function openCreateDialog() {
     setSaleId(null)
@@ -113,6 +116,8 @@ export function ExchangesPage() {
               <TableHead>Sucursal</TableHead>
               <TableHead>Ítems devueltos</TableHead>
               <TableHead>Ítems nuevos</TableHead>
+              <TableHead>Diferencia</TableHead>
+              <TableHead>Estado</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -125,11 +130,12 @@ export function ExchangesPage() {
                   branchName={
                     branches?.find((b) => b.id === branchIdForExchange(exchange.sale_id))?.name ?? '-'
                   }
+                  onClick={() => setSelectedExchangeId(exchange.id)}
                 />
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground">
                   Sin cambios registrados
                 </TableCell>
               </TableRow>
@@ -137,6 +143,18 @@ export function ExchangesPage() {
           </TableBody>
         </Table>
       )}
+
+      <Dialog
+        open={selectedExchangeId !== null}
+        onOpenChange={(isOpen) => !isOpen && setSelectedExchangeId(null)}
+      >
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de cambio</DialogTitle>
+          </DialogHeader>
+          {selectedExchangeId !== null && <ExchangeDetailPanel exchangeId={selectedExchangeId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -145,14 +163,16 @@ function ExchangeRow({
   id,
   saleId,
   branchName,
+  onClick,
 }: {
   id: number
   saleId: number
   branchName: string
+  onClick: () => void
 }) {
   const { data: detail } = useExchange(id)
   return (
-    <TableRow>
+    <TableRow className="cursor-pointer hover:bg-muted/50" onClick={onClick}>
       <TableCell>{id}</TableCell>
       <TableCell>Venta #{saleId}</TableCell>
       <TableCell>{branchName}</TableCell>
@@ -160,6 +180,14 @@ function ExchangeRow({
         {detail ? <ExchangeItemsList items={detail.returned_items} /> : '-'}
       </TableCell>
       <TableCell>{detail ? <ExchangeItemsList items={detail.new_items} /> : '-'}</TableCell>
+      <TableCell>{detail ? formatCurrency(detail.balance) : '-'}</TableCell>
+      <TableCell>
+        {detail?.cancelled_at !== null && detail !== undefined ? (
+          <Badge variant="destructive">Cancelado</Badge>
+        ) : (
+          <Badge variant="secondary">Activo</Badge>
+        )}
+      </TableCell>
     </TableRow>
   )
 }

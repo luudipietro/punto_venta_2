@@ -67,6 +67,8 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
             SqlAlchemyCategoryRepository(session),
         ),
         SqlAlchemyCustomerRepository(session),
+        SqlAlchemyExchangeReturnItemRepository(session),
+        SqlAlchemyExchangeNewItemRepository(session),
     )
 
 

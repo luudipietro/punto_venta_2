@@ -20,6 +20,7 @@ class ExchangeCreate(BaseModel):
     returned_items: list[ExchangeItemInput] = Field(min_length=1)
     new_items: list[ExchangeItemInput] = Field(default_factory=list)
     payments: list[ExchangePaymentInput] = Field(default_factory=list)
+    waive_refund: bool = False
 
 
 class ExchangeReturnItemRead(BaseModel):
@@ -58,9 +59,11 @@ class ExchangeRead(BaseModel):
     sale_id: int
     branch_id: int
     created_at: datetime
+    cancelled_at: datetime | None = None
 
 
 class ExchangeDetailRead(ExchangeRead):
     returned_items: list[ExchangeReturnItemRead]
     new_items: list[ExchangeNewItemRead]
     payments: list[ExchangePaymentRead]
+    balance: Decimal

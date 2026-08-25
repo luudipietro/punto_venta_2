@@ -99,6 +99,8 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
             SqlAlchemyCategoryRepository(session),
         ),
         SqlAlchemyCustomerRepository(session),
+        SqlAlchemyExchangeReturnItemRepository(session),
+        SqlAlchemyExchangeNewItemRepository(session),
     )
 
 
@@ -327,3 +329,160 @@ async def test_exchange_cannot_return_the_same_unit_twice_across_exchanges(
     new_updated = await SqlAlchemyStockRepository(db_session).get_by_id(new_stock.id)
     assert old_updated.quantity == 10  # 10 - 1 sold + 1 returned, second exchange rejected
     assert new_updated.quantity == 14  # 15 - 1 given, second exchange rejected
+
+
+async def test_cancel_sale_after_exchange_restores_the_exchanged_stock_not_the_original(
+    db_session: AsyncSession,
+) -> None:
+    """Regression test for the reported bug: sell 1 size-M unit (10 -> 9),
+    exchange it for a size-L unit (M restocked to 10, L destocked to 14),
+    then cancel the whole sale. Cancelling must restore the *current* state
+    (give back the L the customer is holding) — not re-restore the original
+    M a second time (which would have drifted it to 11) while leaving L
+    permanently short by 1."""
+    m_stock = await _seed_stock(db_session, quantity=10, price=Decimal("20.00"))
+    l_stock = await _seed_stock(db_session, quantity=15, price=Decimal("20.00"))
+    sale, payment_method = await _make_sale(
+        db_session, m_stock, quantity=1, unit_price=Decimal("20.00")
+    )
+
+    exchange_service = _build_exchange_service(db_session)
+    await exchange_service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=m_stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[ExchangeNewItem(stock_id=l_stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("0.00"))],
+    )
+    m_after_exchange = await SqlAlchemyStockRepository(db_session).get_by_id(m_stock.id)
+    l_after_exchange = await SqlAlchemyStockRepository(db_session).get_by_id(l_stock.id)
+    assert m_after_exchange.quantity == 10
+    assert l_after_exchange.quantity == 14
+
+    sale_service = _build_sale_service(db_session)
+    cancelled = await sale_service.cancel_sale(sale.id)
+
+    assert cancelled.cancelled_at is not None
+    m_after_cancel = await SqlAlchemyStockRepository(db_session).get_by_id(m_stock.id)
+    l_after_cancel = await SqlAlchemyStockRepository(db_session).get_by_id(l_stock.id)
+    assert m_after_cancel.quantity == 10  # unchanged — already restored by the exchange
+    assert l_after_cancel.quantity == 15  # the L the customer had is given back
+
+
+async def test_cancel_exchange_reverses_its_stock_effect(db_session: AsyncSession) -> None:
+    m_stock = await _seed_stock(db_session, quantity=10, price=Decimal("20.00"))
+    l_stock = await _seed_stock(db_session, quantity=15, price=Decimal("20.00"))
+    sale, payment_method = await _make_sale(
+        db_session, m_stock, quantity=1, unit_price=Decimal("20.00")
+    )
+    service = _build_exchange_service(db_session)
+
+    exchange = await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=m_stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[ExchangeNewItem(stock_id=l_stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("0.00"))],
+    )
+
+    cancelled = await service.cancel_exchange(exchange.id)
+
+    assert cancelled.cancelled_at is not None
+    m_after = await SqlAlchemyStockRepository(db_session).get_by_id(m_stock.id)
+    l_after = await SqlAlchemyStockRepository(db_session).get_by_id(l_stock.id)
+    assert m_after.quantity == 9  # back to post-sale state (the return is undone)
+    assert l_after.quantity == 15  # the given L is undone too
+
+
+async def test_cancel_exchange_twice_raises(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=10, price=Decimal("20.00"))
+    sale, payment_method = await _make_sale(
+        db_session, stock, quantity=2, unit_price=Decimal("20.00")
+    )
+    service = _build_exchange_service(db_session)
+    exchange = await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("-20.00"))],
+    )
+    await service.cancel_exchange(exchange.id)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.cancel_exchange(exchange.id)
+
+
+async def test_cancel_exchange_only_allows_the_most_recent_one(db_session: AsyncSession) -> None:
+    stock = await _seed_stock(db_session, quantity=10, price=Decimal("20.00"))
+    sale, payment_method = await _make_sale(
+        db_session, stock, quantity=2, unit_price=Decimal("20.00")
+    )
+    service = _build_exchange_service(db_session)
+    first = await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("-20.00"))],
+    )
+    await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[],
+        payments=[ExchangePayment(payment_method_id=payment_method.id, amount=Decimal("-20.00"))],
+    )
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.cancel_exchange(first.id)
+
+
+async def test_create_exchange_with_waive_refund_skips_payment_requirement(
+    db_session: AsyncSession,
+) -> None:
+    old_stock = await _seed_stock(db_session, quantity=5, price=Decimal("20.00"))
+    new_stock = await _seed_stock(db_session, quantity=5, price=Decimal("15.00"))
+    sale, _ = await _make_sale(db_session, old_stock, quantity=1, unit_price=Decimal("20.00"))
+    service = _build_exchange_service(db_session)
+
+    exchange = await service.create_exchange(
+        sale_id=sale.id,
+        returned_items=[
+            ExchangeReturnItem(stock_id=old_stock.id, quantity=1, unit_price=Decimal("20.00"))
+        ],
+        new_items=[ExchangeNewItem(stock_id=new_stock.id, quantity=1, unit_price=Decimal("15.00"))],
+        payments=[],
+        waive_refund=True,
+    )
+
+    assert exchange.id is not None
+    payments = await service.get_payments(exchange.id)
+    assert payments == []
+
+
+async def test_create_exchange_waive_refund_rejects_positive_balance(
+    db_session: AsyncSession,
+) -> None:
+    old_stock = await _seed_stock(db_session, quantity=5, price=Decimal("15.00"))
+    new_stock = await _seed_stock(db_session, quantity=5, price=Decimal("20.00"))
+    sale, _ = await _make_sale(db_session, old_stock, quantity=1, unit_price=Decimal("15.00"))
+    service = _build_exchange_service(db_session)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.create_exchange(
+            sale_id=sale.id,
+            returned_items=[
+                ExchangeReturnItem(stock_id=old_stock.id, quantity=1, unit_price=Decimal("15.00"))
+            ],
+            new_items=[
+                ExchangeNewItem(stock_id=new_stock.id, quantity=1, unit_price=Decimal("20.00"))
+            ],
+            payments=[],
+            waive_refund=True,
+        )

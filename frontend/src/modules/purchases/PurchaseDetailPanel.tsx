@@ -20,7 +20,7 @@ import { Separator } from '@/components/ui/separator'
 import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCancelPurchase, usePayPurchase, usePurchase } from '@/hooks/usePurchases'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 
 function today(): string {
@@ -84,7 +84,7 @@ export function PurchaseDetailPanel({ purchaseId }: { purchaseId: number }) {
           <div className="flex items-center gap-2">
             <Badge>Pagada</Badge>
             <span className="text-muted-foreground">
-              el {purchase.payment_date} con{' '}
+              el {purchase.payment_date && formatDate(purchase.payment_date)} con{' '}
               {paymentMethods?.find((pm) => pm.id === purchase.payment_method_id)?.name ?? '-'}
             </span>
           </div>

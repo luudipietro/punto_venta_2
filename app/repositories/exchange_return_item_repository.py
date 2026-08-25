@@ -37,10 +37,14 @@ class SqlAlchemyExchangeReturnItemRepository(
         return [self._to_domain(model) for model in result.scalars().all()]
 
     async def list_by_sale(self, sale_id: int) -> list[ExchangeReturnItem]:
+        # Cancelled exchanges are excluded: cancelling one already reversed
+        # its restock, so it should no longer count as "returned" either for
+        # capping a future return or for computing what a Sale cancel needs
+        # to restore.
         result = await self._session.execute(
             select(ExchangeReturnItemModel)
             .join(ExchangeModel, ExchangeModel.id == ExchangeReturnItemModel.exchange_id)
-            .where(ExchangeModel.sale_id == sale_id)
+            .where(ExchangeModel.sale_id == sale_id, ExchangeModel.cancelled_at.is_(None))
         )
         return [self._to_domain(model) for model in result.scalars().all()]
 

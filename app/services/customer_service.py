@@ -35,6 +35,14 @@ class CustomerService(CrudService[Customer]):
                 f"Ya existe un cliente con DNI {customer.dni}"
             ) from exc
 
+    async def delete(self, entity_id: int) -> None:
+        try:
+            await super().delete(entity_id)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(
+                "No se puede eliminar: este cliente tiene ventas asociadas"
+            ) from exc
+
 
 def get_customer_service(session: AsyncSession = Depends(get_db)) -> CustomerService:
     return CustomerService(SqlAlchemyCustomerRepository(session))

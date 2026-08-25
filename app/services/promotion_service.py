@@ -245,11 +245,12 @@ class PromotionService(CrudService[Promotion]):
 
     async def _validate_items(self, items: list[PromotionItem]) -> None:
         if not items:
-            raise BusinessRuleViolationError("Promotion must have at least one item")
+            raise BusinessRuleViolationError("La promoción debe tener al menos un ítem")
         for item in items:
             if (item.product_id is None) == (item.category_id is None):
                 raise BusinessRuleViolationError(
-                    "Promotion item must target exactly one of product_id or category_id"
+                    "Cada ítem de la promoción debe apuntar a un producto o a una "
+                    "categoría, no ambos"
                 )
             if item.product_id is not None:
                 if await self._product_repository.get_by_id(item.product_id) is None:

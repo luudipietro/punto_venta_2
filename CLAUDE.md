@@ -126,6 +126,35 @@ Exchange/ExchangeReturnItem/ExchangeNewItem/ExchangePayment, and Expense. A Reac
 (`frontend/`, see the **Frontend** section below) covers the whole API. The original domain model
 is now fully covered.
 
+- **All API error messages are in Spanish**: `app/core/exceptions.py` translates domain exceptions
+  via a small `_ENTITY_NAMES_ES` lookup (`Product` → "producto", `Stock` → "stock", etc.) baked into
+  `EntityNotFoundError.__init__`'s message; `InsufficientStockError` is similarly Spanish. FastAPI's
+  own `RequestValidationError` (422s from Pydantic field validation, not from a raised domain
+  exception) is intercepted by a new `validation_error_handler` in
+  `app/core/exception_handlers.py`, which rewrites each error's `msg` to a generic Spanish
+  `"{field}: Dato inválido o faltante"` rather than passing through Pydantic's English message
+  verbatim — this is a blunt catch-all (it doesn't localize *why* a field is invalid, just that it
+  is), not a full i18n system. The catch-all `Exception` handler's fallback message is also Spanish
+  now (`"Error interno del servidor"`). New domain exceptions or new entities added to
+  `_ENTITY_NAMES_ES` should follow this same pattern rather than leaking an English message to the
+  frontend.
+- **Deleting a referenced row now fails with a friendly message instead of a fake CORS error**:
+  `ProductService.delete`, `StockService.delete`, and `CustomerService.delete` each override the
+  base `CrudService.delete` to catch `IntegrityError` (from a still-referencing FK — e.g. a Product
+  with stock, or a Stock with sales/purchases/exchanges) and re-raise it as
+  `BusinessRuleViolationError` with a specific Spanish message, same pattern `StockService.create`
+  already used for the `uq_stock_variant` conflict (see Stock below). Before this, deleting a
+  referenced row surfaced as an unhandled `IntegrityError` → generic 500 → (per the CORS note above)
+  a misleading "CORS header missing" error in the browser console instead of a real error message.
+  `ProductService`/`CustomerService`'s other FK edges (e.g. a Product with `ProductImage`s, a
+  Customer with Sales) aren't covered by this yet — see Known limitations.
+- **Dates render as dd/mm/yyyy** everywhere in the frontend via `formatDate`/`formatDateTime` in
+  `frontend/src/lib/format.ts` (an `Intl.DateTimeFormat('es-AR', ...)` instance) — added because the
+  default `toLocaleDateString()`/raw-ISO rendering used inconsistently across pages read as
+  yyyy/mm/dd-ish or locale-dependent. `formatDate` expects a bare `YYYY-MM-DD` (appends `T12:00:00`
+  before parsing, to dodge UTC-midnight rolling back a day in negative-UTC-offset browsers);
+  `formatDateTime` expects a full ISO timestamp. Prefer these over ad hoc `new Date(...).
+  toLocaleString()` calls in new code.
 - **Product** (`app/domain/product.py`) has `category_id`/`brand_id` as **optional** (`int |
   None`) — a product can be created without either, unlike every other FK on the entity.
   `ProductService._ensure_references_exist` only validates the FK when it's not `None` (same
@@ -234,7 +263,45 @@ is now fully covered.
   every `Exchange` tied to that sale (filtering `useExchanges()` by `sale_id`, same "acceptable at
   this scale" client-side filtering `SalesHistoryPage.tsx` already used), and both there and in
   `ExchangesPage.tsx`/`SalesHistoryPage.tsx`'s daily breakdown, `ExchangeItemsList.tsx` resolves each
-  returned/new item's `stock_id` to a readable product/variant label instead of a bare count.
+  returned/new item's `stock_id` to a readable product/variant label instead of a bare count. Each of
+  these three surfaces (`ExchangesPage.tsx`, `SaleDetailPanel.tsx`, and `SalesHistoryPage.tsx`'s daily
+  breakdown) now renders every `Exchange` row as a clickable trigger opening a shared
+  `ExchangeDetailPanel.tsx` in a `Dialog` — full returned/new items, payments, and the computed
+  `balance` (`ExchangeDetailRead.balance = new_total - returned_total`, computed in
+  `exchange_route.py::_to_detail_read`, same shape as `SaleDetailRead`'s totals) in one place instead
+  of duplicating the breakdown UI three times.
+- **`Exchange.cancelled_at`** mirrors `Sale.cancelled_at` — `ExchangeService.cancel_exchange` reverses
+  the exchange's own stock effect (decreases what was restocked via the return, increases what was
+  destocked via the new items) and calls `ExchangeRepository.mark_cancelled`. It only allows
+  cancelling the **most recent non-cancelled** `Exchange` for that sale (`BusinessRuleViolationError`
+  otherwise) — a deliberate simplification to avoid reasoning about out-of-order stock reversal when
+  several exchanges chain off the same sale (e.g. M→L→M): cancelling an older one first could put a
+  later exchange's return/new items in an inconsistent state relative to what's actually on the shelf.
+  `list_by_sale`/`mark_cancelled` were added to `ExchangeRepository`; `ExchangeReturnItemRepository.
+  list_by_sale` and the newly-added `ExchangeNewItemRepository.list_by_sale` both filter
+  `ExchangeModel.cancelled_at.is_(None)` in their join, so a cancelled exchange's items no longer
+  count toward the "already returned/given" totals used by `create_exchange`'s validation or by
+  `SaleService.cancel_sale`'s net-restore below.
+- **Exchange without a full refund**: `ExchangeCreate.waive_refund: bool = False` lets the cashier
+  skip the payment-matching requirement when the computed `balance` favors the customer
+  (`balance <= 0`, i.e. the new item is cheaper or a pure return) — the true `balance` is still
+  always computed and persisted for history, only the "payments must sum to it" check is skipped.
+  Passing `waive_refund=True` when `balance > 0` still raises `BusinessRuleViolationError` — the
+  customer must pay a positive difference, it can't be waived. `ExchangeForm.tsx` only shows the "No
+  reembolsar la diferencia" checkbox when `balance < 0`, and resets it whenever that stops being true
+  (e.g. the cashier changes the items after checking it).
+- **`SaleService.cancel_sale` restores the *net* current state of a sale's stock, not the original
+  sale's items** — this is the fix for a real bug found in manual testing: cancelling a sale that had
+  since been exchanged used to restore the *original* `SaleItem`s' stock, silently ignoring what the
+  exchange(s) had already done, corrupting stock counts. `cancel_sale` now builds a per-`stock_id`
+  delta (`net_restore`) starting from the original `SaleItem`s, subtracting quantities returned via
+  every non-cancelled `Exchange` against that sale (`ExchangeReturnItemRepository.list_by_sale`), and
+  adding quantities given via those same exchanges' new items
+  (`ExchangeNewItemRepository.list_by_sale` — new for this). Cancelling the sale then
+  increases/decreases each `stock_id` by its net delta in one pass, so what actually gets restored is
+  whatever product is currently "out" because of the sale, regardless of how many exchanges happened
+  in between. `SaleService.__init__` gained the two new repository dependencies to support this;
+  `get_sale_service` wires them from the same request session as everything else.
 - **Sale preview**: `SaleService.compute_totals` (subtotal/promotion/discount/total math, no
   persistence, no stock touched) is shared by `create_sale` and `POST /sales/preview` — the
   frontend calls `/sales/preview` live as the cart changes so the promotion/total can be shown
@@ -264,19 +331,23 @@ is now fully covered.
   client) and is what the daily-balance report groups by; it did not exist before this feature and
   had to be backfilled onto existing rows via the column's DB default (see Database section).
 - **Sale cancellation**: a `Sale` is otherwise append-only (see below), but `cancelled_at`
-  (`app/domain/sale.py`) is the one exception — `SaleService.cancel_sale` restores each
-  `SaleItem`'s stock via `StockService.increase_quantity`, then calls
-  `SaleRepository.mark_cancelled` (a narrow UPDATE, not a general `update()` — the repository still
-  has no such method). Raises `BusinessRuleViolationError` if already cancelled. A cancelled sale
-  stays in `GET /sales`/`GET /sales/{id}` for the record but is excluded from
-  `ReportService.daily_cash_balance` entirely (see below) and the frontend hides its "Cambio /
-  devolución" and "Cancelar" actions once cancelled.
+  (`app/domain/sale.py`) is the one exception — `SaleService.cancel_sale` restores stock (see the
+  net-restore description under Exchange/Return above — it accounts for any exchanges against the
+  sale, not just the original items) then calls `SaleRepository.mark_cancelled` (a narrow UPDATE, not
+  a general `update()` — the repository still has no such method). Raises
+  `BusinessRuleViolationError` if already cancelled. A cancelled sale stays in `GET /sales`/
+  `GET /sales/{id}` for the record but is excluded from `ReportService.daily_cash_balance` entirely
+  (see below) and the frontend hides its "Cambio / devolución" and "Cancelar" actions once cancelled.
 - **Expense** (`app/domain/expense.py`) is a flat entity — `branch_id`, `payment_method_id`,
   `amount`, `description`, `date` — with full CRUD via the generic `CrudService` pattern (plus FK
   existence checks in `ExpenseService`, same shape as `StockService._ensure_references_exist`).
   Represents money paid out of a branch (e.g. buying cleaning supplies with register cash);
   `payment_method_id` records *what it was paid with*, reusing `PaymentMethod` rather than a
-  separate concept.
+  separate concept. Deletable — `SalesHistoryPage.tsx`'s daily breakdown lists each day's expenses
+  with a trash-icon button (`AlertDialog`-confirmed, same pattern as everything else destructive in
+  this codebase) calling the plain `useDeleteExpense()` CRUD hook (`DELETE /expenses/{id}`, no
+  special domain logic — unlike Sale/Purchase/Exchange, an Expense was never designed to be
+  append-only, so this is a real delete, not a `cancelled_at` flag).
 - **`PaymentMethod.is_cash`**: a boolean added specifically so daily-balance reporting has a
   reliable way to know which payments/expenses are physical cash-register money, instead of
   string-matching on `name` (e.g. `"Efectivo"`). Set it `True` on whichever payment method(s)
@@ -475,16 +546,8 @@ Raised during manual Postman/pgAdmin testing of the flows above; deliberately de
 - **No audit trail for manual stock +/-**: `StockPage.tsx` asks for confirmation before applying a
   manual increase/decrease (to avoid stray clicks), but nothing records who/when/why on the
   backend — `StockService.increase_quantity`/`decrease_quantity` just mutate `quantity`. Explicitly
-  deferred until there's a login/user system to attribute the change to; revisit then rather than
-  bolting on an anonymous audit log now.
-- **No FK-violation translation for `Product` → `ProductImage`/`Sale` → `Customer`**: neither
-  `ProductService.delete` nor `CustomerService.delete` catches `IntegrityError`, unlike
-  `StockService.create`/`CustomerService.create`. Deleting a `Product` that still has gallery
-  images, or a `Customer` that's attached to a `Sale`, raises a raw `IntegrityError` that surfaces
-  as a generic 500 (caught by the catch-all handler, so at least it won't look like a CORS error —
-  see the exception-handling note above — but the message isn't friendly). Not hit in practice yet
-  since nothing in the frontend deletes a `Customer` with sales or a `Product` with gallery images,
-  but worth fixing the same way as the existing `StockService.create` pattern if it comes up.
+  re-confirmed as deferred (the user chose "esperar al sistema de login" over adding an anonymous
+  audit log) — revisit once there's a login/user system to attribute the change to.
 - **Stock-duplicate merge is a frontend-only courtesy**: `StockPage.tsx` checks the already-loaded
   `useStocks()` list before submitting "Nuevo" and offers to merge quantities into an existing
   matching row — but nothing stops a second browser tab, or a direct `POST /stocks`, from racing

@@ -24,12 +24,12 @@ class UploadImageRead(BaseModel):
 async def upload_image(file: UploadFile) -> UploadImageRead:
     if file.content_type not in ALLOWED_EXTENSIONS:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "File must be an image (jpeg, png, webp, gif)"
+            status.HTTP_400_BAD_REQUEST, "El archivo debe ser una imagen (jpeg, png, webp, gif)"
         )
 
     contents = await file.read(MAX_UPLOAD_SIZE + 1)
     if len(contents) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Image must be 5MB or smaller")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "La imagen debe pesar 5MB o menos")
 
     settings = get_settings()
     products_dir = settings.media_root / "products"

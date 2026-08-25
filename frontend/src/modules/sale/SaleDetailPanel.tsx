@@ -2,6 +2,12 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import {
   AlertDialog,
@@ -18,6 +24,7 @@ import { useCustomer } from '@/hooks/useCustomers'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { formatCurrency } from '@/lib/format'
+import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
 import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
@@ -36,6 +43,7 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
 
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [showExchangeForm, setShowExchangeForm] = useState(false)
+  const [selectedExchangeId, setSelectedExchangeId] = useState<number | null>(null)
 
   if (isLoading || !sale) {
     return <p className="text-sm text-muted-foreground">Cargando...</p>
@@ -150,7 +158,11 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
               {saleExchanges
                 .sort((a, b) => b.id - a.id)
                 .map((exchange) => (
-                  <SaleExchangeRow key={exchange.id} exchangeId={exchange.id} />
+                  <SaleExchangeRow
+                    key={exchange.id}
+                    exchangeId={exchange.id}
+                    onClick={() => setSelectedExchangeId(exchange.id)}
+                  />
                 ))}
             </div>
           </div>
@@ -191,6 +203,18 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={selectedExchangeId !== null}
+        onOpenChange={(isOpen) => !isOpen && setSelectedExchangeId(null)}
+      >
+        <DialogContent className="max-h-[85vh] sm:max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Detalle de cambio</DialogTitle>
+          </DialogHeader>
+          {selectedExchangeId !== null && <ExchangeDetailPanel exchangeId={selectedExchangeId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -205,13 +229,25 @@ function SaleCustomerLabel({ customerId }: { customerId: number }) {
   )
 }
 
-function SaleExchangeRow({ exchangeId }: { exchangeId: number }) {
+function SaleExchangeRow({ exchangeId, onClick }: { exchangeId: number; onClick: () => void }) {
   const { data: exchange } = useExchange(exchangeId)
   if (!exchange) return null
 
   return (
-    <div className="rounded-md border px-3 py-2 text-sm">
-      <p className="text-xs text-muted-foreground">Cambio #{exchange.id}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-md border px-3 py-2 text-left text-sm hover:border-primary"
+    >
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          Cambio #{exchange.id}
+          {exchange.cancelled_at !== null && <Badge variant="destructive">Cancelado</Badge>}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          Dif.: {formatCurrency(exchange.balance)}
+        </span>
+      </div>
       {exchange.returned_items.length > 0 && (
         <p>
           Devuelve: <ExchangeItemsList items={exchange.returned_items} />
@@ -222,6 +258,6 @@ function SaleExchangeRow({ exchangeId }: { exchangeId: number }) {
           Entrega: <ExchangeItemsList items={exchange.new_items} />
         </p>
       )}
-    </div>
+    </button>
   )
 }

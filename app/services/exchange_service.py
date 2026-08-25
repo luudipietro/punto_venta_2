@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import Depends
@@ -88,6 +89,7 @@ class ExchangeService:
         returned_items: list[ExchangeReturnItem],
         new_items: list[ExchangeNewItem],
         payments: list[ExchangePayment],
+        waive_refund: bool = False,
     ) -> Exchange:
         sale = await self._sale_repository.get_by_id(sale_id)
         if sale is None:
@@ -112,12 +114,12 @@ class ExchangeService:
             sold_quantity = sold_quantity_by_stock.get(returned_item.stock_id)
             if sold_quantity is None:
                 raise BusinessRuleViolationError(
-                    f"Stock {returned_item.stock_id} was not part of sale {sale_id}"
+                    f"El stock {returned_item.stock_id} no formaba parte de la venta {sale_id}"
                 )
             if returned_item.quantity > sold_quantity:
                 raise BusinessRuleViolationError(
-                    f"Cannot return {returned_item.quantity} unit(s) of stock "
-                    f"{returned_item.stock_id}; only {sold_quantity} were sold"
+                    f"No se pueden devolver {returned_item.quantity} unidad(es) del stock "
+                    f"{returned_item.stock_id}; solo se vendieron {sold_quantity}"
                 )
 
         returned_total = sum(
@@ -126,11 +128,24 @@ class ExchangeService:
         new_total = sum((item.unit_price * item.quantity for item in new_items), Decimal("0"))
         balance = new_total - returned_total
 
-        paid_balance = sum((payment.amount for payment in payments), Decimal("0"))
-        if paid_balance != balance:
-            raise BusinessRuleViolationError(
-                f"Payments total ({paid_balance}) does not match the exchange balance ({balance})"
-            )
+        # waive_refund lets the store keep a customer-favorable difference
+        # (e.g. they exchanged for something cheaper) without requiring a
+        # negative payment to "balance the books" — the true balance is still
+        # computed and returned to the caller so the history shows what was
+        # waived, it just isn't required to be covered by a payment. It only
+        # makes sense when the store would otherwise owe money back.
+        if waive_refund:
+            if balance > 0:
+                raise BusinessRuleViolationError(
+                    "No se puede omitir el reembolso: el cliente debe pagar una diferencia"
+                )
+        else:
+            paid_balance = sum((payment.amount for payment in payments), Decimal("0"))
+            if paid_balance != balance:
+                raise BusinessRuleViolationError(
+                    f"El total de pagos ({paid_balance}) no coincide con la diferencia "
+                    f"del cambio ({balance})"
+                )
 
         for payment in payments:
             if await self._payment_method_repository.get_by_id(payment.payment_method_id) is None:
@@ -160,6 +175,39 @@ class ExchangeService:
             payment.id = created_payment.id
 
         return exchange
+
+    async def cancel_exchange(self, exchange_id: int) -> Exchange:
+        """Reverses one exchange's stock effect: destocks what it had
+        restocked (the returned items) and restocks what it had destocked
+        (the new items given out), then marks it cancelled. Only allowed on
+        the most recent (non-cancelled) exchange for its sale — cancelling
+        an older one out of order would leave later exchanges' quantity caps
+        (computed against "already returned via non-cancelled exchanges")
+        referring to a state that no longer matches reality."""
+        exchange = await self.get_by_id(exchange_id)
+        if exchange.cancelled_at is not None:
+            raise BusinessRuleViolationError(f"El cambio {exchange_id} ya está cancelado")
+
+        sale_exchanges = await self._exchange_repository.list_by_sale(exchange.sale_id)
+        active_exchanges = [e for e in sale_exchanges if e.cancelled_at is None]
+        most_recent = max(active_exchanges, key=lambda e: e.id or 0)
+        if most_recent.id != exchange_id:
+            raise BusinessRuleViolationError(
+                "Solo se puede cancelar el cambio más reciente de esta venta"
+            )
+
+        for returned_item in await self._exchange_return_item_repository.list_by_exchange(
+            exchange_id
+        ):
+            await self._stock_service.decrease_quantity(
+                returned_item.stock_id, returned_item.quantity
+            )
+        for new_item in await self._exchange_new_item_repository.list_by_exchange(exchange_id):
+            await self._stock_service.increase_quantity(new_item.stock_id, new_item.quantity)
+
+        return await self._exchange_repository.mark_cancelled(
+            exchange_id, datetime.now(UTC).replace(tzinfo=None)
+        )
 
 
 def get_exchange_service(session: AsyncSession = Depends(get_db)) -> ExchangeService:

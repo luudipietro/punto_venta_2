@@ -1,7 +1,8 @@
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import EntityNotFoundError
+from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
 from app.domain.product import Product
 from app.infrastructure.db.session import get_db
 from app.repositories.brand_repository import BrandRepository, SqlAlchemyBrandRepository
@@ -30,6 +31,15 @@ class ProductService(CrudService[Product]):
     async def update(self, entity_id: int, product: Product) -> Product:
         await self._ensure_references_exist(product)
         return await super().update(entity_id, product)
+
+    async def delete(self, entity_id: int) -> None:
+        try:
+            await super().delete(entity_id)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(
+                "No se puede eliminar: este producto tiene stock, imágenes, ventas o "
+                "compras asociadas"
+            ) from exc
 
     async def _ensure_references_exist(self, product: Product) -> None:
         if product.category_id is not None:

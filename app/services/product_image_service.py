@@ -37,7 +37,7 @@ class ProductImageService:
             raise EntityNotFoundError("ProductImage", image_id)
         if image.product_id != product_id:
             raise BusinessRuleViolationError(
-                f"Image {image_id} does not belong to product {product_id}"
+                f"La imagen {image_id} no pertenece al producto {product_id}"
             )
         await self._repository.delete(image_id)
 

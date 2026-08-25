@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, status
 
 from app.domain.exchange import Exchange
@@ -53,8 +55,18 @@ async def create_exchange(
         ExchangePayment(payment_method_id=payment.payment_method_id, amount=payment.amount)
         for payment in payload.payments
     ]
-    exchange = await service.create_exchange(payload.sale_id, returned_items, new_items, payments)
+    exchange = await service.create_exchange(
+        payload.sale_id, returned_items, new_items, payments, waive_refund=payload.waive_refund
+    )
     return _to_detail_read(exchange, returned_items, new_items, payments)
+
+
+@router.post("/{exchange_id}/cancel", response_model=ExchangeRead)
+async def cancel_exchange(
+    exchange_id: int, service: ExchangeService = Depends(get_exchange_service)
+) -> ExchangeRead:
+    exchange = await service.cancel_exchange(exchange_id)
+    return ExchangeRead.model_validate(exchange)
 
 
 def _to_detail_read(
@@ -63,12 +75,16 @@ def _to_detail_read(
     new_items: list[ExchangeNewItem],
     payments: list[ExchangePayment],
 ) -> ExchangeDetailRead:
+    returned_total = sum((item.unit_price * item.quantity for item in returned_items), Decimal("0"))
+    new_total = sum((item.unit_price * item.quantity for item in new_items), Decimal("0"))
     return ExchangeDetailRead(
         id=exchange.id,
         sale_id=exchange.sale_id,
         branch_id=exchange.branch_id,
         created_at=exchange.created_at,
+        cancelled_at=exchange.cancelled_at,
         returned_items=[ExchangeReturnItemRead.model_validate(item) for item in returned_items],
         new_items=[ExchangeNewItemRead.model_validate(item) for item in new_items],
         payments=[ExchangePaymentRead.model_validate(payment) for payment in payments],
+        balance=new_total - returned_total,
     )

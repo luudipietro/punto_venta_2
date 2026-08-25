@@ -27,6 +27,10 @@ from app.repositories.brand_repository import SqlAlchemyBrandRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
 from app.repositories.customer_repository import SqlAlchemyCustomerRepository
+from app.repositories.exchange_new_item_repository import SqlAlchemyExchangeNewItemRepository
+from app.repositories.exchange_return_item_repository import (
+    SqlAlchemyExchangeReturnItemRepository,
+)
 from app.repositories.payment_method_repository import SqlAlchemyPaymentMethodRepository
 from app.repositories.product_repository import SqlAlchemyProductRepository
 from app.repositories.promotion_item_repository import SqlAlchemyPromotionItemRepository
@@ -137,6 +141,8 @@ def _build_sale_service(session: AsyncSession) -> SaleService:
         SqlAlchemyProductRepository(session),
         _build_promotion_service(session),
         SqlAlchemyCustomerRepository(session),
+        SqlAlchemyExchangeReturnItemRepository(session),
+        SqlAlchemyExchangeNewItemRepository(session),
     )
 
 

@@ -60,3 +60,21 @@ async def test_create_product_with_missing_category_returns_404(client: AsyncCli
         },
     )
     assert resp.status_code == 404
+
+
+async def test_delete_product_with_stock_returns_friendly_error(client: AsyncClient) -> None:
+    product_resp = await client.post(
+        "/products", json={"name": "Con stock", "cost": "10.00", "price": "20.00"}
+    )
+    product_id = product_resp.json()["id"]
+    branch_resp = await client.post("/branches", json={"name": "Central"})
+    branch_id = branch_resp.json()["id"]
+    await client.post(
+        "/stocks",
+        json={"product_id": product_id, "branch_id": branch_id, "quantity": 5},
+    )
+
+    resp = await client.delete(f"/products/{product_id}")
+
+    assert resp.status_code == 422
+    assert "no se puede eliminar" in resp.json()["detail"].lower()

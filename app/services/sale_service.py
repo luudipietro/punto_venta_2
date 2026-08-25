@@ -13,6 +13,14 @@ from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
 from app.repositories.customer_repository import CustomerRepository, SqlAlchemyCustomerRepository
+from app.repositories.exchange_new_item_repository import (
+    ExchangeNewItemRepository,
+    SqlAlchemyExchangeNewItemRepository,
+)
+from app.repositories.exchange_return_item_repository import (
+    ExchangeReturnItemRepository,
+    SqlAlchemyExchangeReturnItemRepository,
+)
 from app.repositories.payment_method_repository import (
     PaymentMethodRepository,
     SqlAlchemyPaymentMethodRepository,
@@ -48,6 +56,8 @@ class SaleService:
         product_repository: ProductRepository,
         promotion_service: PromotionService,
         customer_repository: CustomerRepository,
+        exchange_return_item_repository: ExchangeReturnItemRepository,
+        exchange_new_item_repository: ExchangeNewItemRepository,
     ) -> None:
         self._sale_repository = sale_repository
         self._sale_item_repository = sale_item_repository
@@ -57,6 +67,8 @@ class SaleService:
         self._product_repository = product_repository
         self._promotion_service = promotion_service
         self._customer_repository = customer_repository
+        self._exchange_return_item_repository = exchange_return_item_repository
+        self._exchange_new_item_repository = exchange_new_item_repository
 
     async def list_all(self) -> list[Sale]:
         return await self._sale_repository.list_all()
@@ -153,7 +165,9 @@ class SaleService:
 
         total = subtotal - discount - promotion_discount
         if total < 0:
-            raise BusinessRuleViolationError("Discount cannot exceed the sale subtotal")
+            raise BusinessRuleViolationError(
+                "El descuento no puede superar el subtotal de la venta"
+            )
 
         return Sale(
             branch_id=branch_id,
@@ -186,7 +200,8 @@ class SaleService:
         paid_total = sum((payment.amount_without_surcharge for payment in payments), Decimal("0"))
         if paid_total != computed.total:
             raise BusinessRuleViolationError(
-                f"Payments total ({paid_total}) does not match the sale total ({computed.total})"
+                f"El total de pagos ({paid_total}) no coincide con el total de la venta "
+                f"({computed.total})"
             )
 
         for payment in payments:
@@ -198,9 +213,9 @@ class SaleService:
             ).quantize(Decimal("0.01"))
             if expected_without_surcharge != payment.amount_without_surcharge:
                 raise BusinessRuleViolationError(
-                    f"Payment surcharge mismatch for method {method.id}: "
-                    f"expected amount_without_surcharge={expected_without_surcharge}, "
-                    f"got {payment.amount_without_surcharge}"
+                    f"El recargo del pago no coincide para el método {method.id}: "
+                    f"se esperaba {expected_without_surcharge}, se recibió "
+                    f"{payment.amount_without_surcharge}"
                 )
 
         sale = await self._sale_repository.create(computed)
@@ -219,17 +234,39 @@ class SaleService:
         return sale
 
     async def cancel_sale(self, sale_id: int) -> Sale:
-        """Cancels a sale in place of editing it: restores the stock each
-        SaleItem decremented, then marks the sale cancelled. A cancelled sale
-        stays visible in history for the record, but no longer counts toward
-        cash balances (see ReportService) and can't be cancelled again."""
+        """Cancels a sale in place of editing it: restores stock, then marks
+        the sale cancelled. A cancelled sale stays visible in history for the
+        record, but no longer counts toward cash balances (see ReportService)
+        and can't be cancelled again.
+
+        Restoring stock has to account for any (non-cancelled) Exchange
+        against this sale, not just the original SaleItems — otherwise
+        cancelling a sale that was later exchanged (e.g. size M sold, then
+        exchanged for size L) would restore the *original* M a second time
+        (it was already restored when the exchange happened) while never
+        giving back the L the customer is actually holding. The correct
+        restoration per stock_id is: originally sold - already returned via
+        exchange + given as a new item via exchange, which nets out to
+        exactly what's currently "out" with the customer."""
         sale = await self.get_by_id(sale_id)
         if sale.cancelled_at is not None:
-            raise BusinessRuleViolationError(f"Sale {sale_id} is already cancelled")
+            raise BusinessRuleViolationError(f"La venta {sale_id} ya está cancelada")
 
-        items = await self._sale_item_repository.list_by_sale(sale_id)
-        for item in items:
-            await self._stock_service.increase_quantity(item.stock_id, item.quantity)
+        net_restore: dict[int, int] = {}
+        for item in await self._sale_item_repository.list_by_sale(sale_id):
+            net_restore[item.stock_id] = net_restore.get(item.stock_id, 0) + item.quantity
+        for returned in await self._exchange_return_item_repository.list_by_sale(sale_id):
+            net_restore[returned.stock_id] = (
+                net_restore.get(returned.stock_id, 0) - returned.quantity
+            )
+        for given in await self._exchange_new_item_repository.list_by_sale(sale_id):
+            net_restore[given.stock_id] = net_restore.get(given.stock_id, 0) + given.quantity
+
+        for stock_id, quantity in net_restore.items():
+            if quantity > 0:
+                await self._stock_service.increase_quantity(stock_id, quantity)
+            elif quantity < 0:
+                await self._stock_service.decrease_quantity(stock_id, -quantity)
 
         return await self._sale_repository.mark_cancelled(
             sale_id, datetime.now(UTC).replace(tzinfo=None)
@@ -257,4 +294,6 @@ def get_sale_service(session: AsyncSession = Depends(get_db)) -> SaleService:
             SqlAlchemyCategoryRepository(session),
         ),
         SqlAlchemyCustomerRepository(session),
+        SqlAlchemyExchangeReturnItemRepository(session),
+        SqlAlchemyExchangeNewItemRepository(session),
     )

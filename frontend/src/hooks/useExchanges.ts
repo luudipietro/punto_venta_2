@@ -24,3 +24,16 @@ export function useCreateExchange() {
     },
   })
 }
+
+export function useCancelExchange() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => exchangeApi.cancel(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['exchanges'] })
+      queryClient.invalidateQueries({ queryKey: ['exchanges', id] })
+      queryClient.invalidateQueries({ queryKey: ['stocks'] })
+      queryClient.invalidateQueries({ queryKey: ['daily-balance'] })
+    },
+  })
+}

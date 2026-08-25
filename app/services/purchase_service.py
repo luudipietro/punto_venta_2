@@ -69,7 +69,8 @@ class PurchaseService:
             stock = await self._stock_service.get_by_id(item.stock_id)
             if stock.branch_id != branch_id:
                 raise BusinessRuleViolationError(
-                    f"Stock {item.stock_id} belongs to branch {stock.branch_id}, not {branch_id}"
+                    f"El stock {item.stock_id} pertenece a la sucursal {stock.branch_id}, "
+                    f"no a {branch_id}"
                 )
             stocks_by_item[item.stock_id] = stock
 
@@ -113,7 +114,7 @@ class PurchaseService:
     ) -> Purchase:
         purchase = await self.get_by_id(purchase_id)
         if purchase.is_paid:
-            raise BusinessRuleViolationError(f"Purchase {purchase_id} is already paid")
+            raise BusinessRuleViolationError(f"La compra {purchase_id} ya está pagada")
         if await self._payment_method_repository.get_by_id(payment_method_id) is None:
             raise EntityNotFoundError("PaymentMethod", payment_method_id)
         return await self._purchase_repository.mark_paid(
@@ -127,7 +128,7 @@ class PurchaseService:
         Product (no prior-cost history is kept — accepted limitation)."""
         purchase = await self.get_by_id(purchase_id)
         if purchase.cancelled_at is not None:
-            raise BusinessRuleViolationError(f"Purchase {purchase_id} is already cancelled")
+            raise BusinessRuleViolationError(f"La compra {purchase_id} ya está cancelada")
 
         items = await self._purchase_item_repository.list_by_purchase(purchase_id)
         for item in items:

@@ -13,3 +13,4 @@ class ExchangeModel(Base):
     sale_id: Mapped[int] = mapped_column(ForeignKey("sales.id"), nullable=False)
     branch_id: Mapped[int] = mapped_column(ForeignKey("branches.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(nullable=True, default=None)
