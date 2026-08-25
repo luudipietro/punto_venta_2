@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.product import Product
 from app.domain.product_image import ProductImage
 from app.schemas.product_image_schema import ProductImageCreate, ProductImageRead
@@ -22,14 +23,21 @@ async def get_product(
     return await service.get_by_id(product_id)
 
 
-@router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ProductRead,
+    status_code=status.HTTP_201_CREATED,
+)
+# No require_admin here on purpose: an empleado registering a Purchase can
+# create a brand-new Product inline (PurchasesPage.tsx's "+ Crear producto
+# nuevo") since Purchase itself is shared, not admin-only — see CLAUDE.md.
 async def create_product(
     payload: ProductCreate, service: ProductService = Depends(get_product_service)
 ) -> Product:
     return await service.create(Product(**payload.model_dump()))
 
 
-@router.put("/{product_id}", response_model=ProductRead)
+@router.put("/{product_id}", response_model=ProductRead, dependencies=[Depends(require_admin)])
 async def update_product(
     product_id: int,
     payload: ProductUpdate,
@@ -38,7 +46,9 @@ async def update_product(
     return await service.update(product_id, Product(**payload.model_dump()))
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{product_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_product(
     product_id: int, service: ProductService = Depends(get_product_service)
 ) -> None:
@@ -53,7 +63,10 @@ async def list_product_images(
 
 
 @router.post(
-    "/{product_id}/images", response_model=ProductImageRead, status_code=status.HTTP_201_CREATED
+    "/{product_id}/images",
+    response_model=ProductImageRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 async def add_product_image(
     product_id: int,
@@ -63,7 +76,11 @@ async def add_product_image(
     return await service.add_image(product_id, payload.url)
 
 
-@router.delete("/{product_id}/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{product_id}/images/{image_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 async def remove_product_image(
     product_id: int,
     image_id: int,

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.payment_method import PaymentMethod
 from app.schemas.payment_method_schema import (
     PaymentMethodCreate,
@@ -26,7 +27,12 @@ async def get_payment_method(
     return await service.get_by_id(payment_method_id)
 
 
-@router.post("", response_model=PaymentMethodRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=PaymentMethodRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 async def create_payment_method(
     payload: PaymentMethodCreate,
     service: PaymentMethodService = Depends(get_payment_method_service),
@@ -34,7 +40,11 @@ async def create_payment_method(
     return await service.create(PaymentMethod(**payload.model_dump()))
 
 
-@router.put("/{payment_method_id}", response_model=PaymentMethodRead)
+@router.put(
+    "/{payment_method_id}",
+    response_model=PaymentMethodRead,
+    dependencies=[Depends(require_admin)],
+)
 async def update_payment_method(
     payment_method_id: int,
     payload: PaymentMethodUpdate,
@@ -43,7 +53,11 @@ async def update_payment_method(
     return await service.update(payment_method_id, PaymentMethod(**payload.model_dump()))
 
 
-@router.delete("/{payment_method_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{payment_method_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
 async def delete_payment_method(
     payment_method_id: int,
     service: PaymentMethodService = Depends(get_payment_method_service),

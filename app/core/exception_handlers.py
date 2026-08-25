@@ -8,6 +8,7 @@ from app.core.exceptions import (
     BusinessRuleViolationError,
     EntityNotFoundError,
     InsufficientStockError,
+    PermissionDeniedError,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,10 @@ async def business_rule_violation_handler(
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": str(exc)}
     )
+
+
+async def permission_denied_handler(_: Request, exc: PermissionDeniedError) -> JSONResponse:
+    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": str(exc)})
 
 
 async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -67,5 +72,6 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(EntityNotFoundError, entity_not_found_handler)
     app.add_exception_handler(InsufficientStockError, insufficient_stock_handler)
     app.add_exception_handler(BusinessRuleViolationError, business_rule_violation_handler)
+    app.add_exception_handler(PermissionDeniedError, permission_denied_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -6,6 +6,7 @@ from app.core.exceptions import (
     BusinessRuleViolationError,
     EntityNotFoundError,
     InsufficientStockError,
+    PermissionDeniedError,
 )
 from app.domain.stock import Stock
 from app.infrastructure.db.session import get_db
@@ -55,17 +56,35 @@ class StockService(CrudService[Stock]):
                 "No se puede eliminar: este stock tiene ventas, compras o cambios asociados"
             ) from exc
 
-    async def decrease_quantity(self, stock_id: int, amount: int) -> Stock:
+    async def decrease_quantity(
+        self, stock_id: int, amount: int, *, acting_branch_id: int | None = None
+    ) -> Stock:
         stock = await self.get_by_id(stock_id)
+        self._check_branch(stock, acting_branch_id)
         if stock.quantity < amount:
             raise InsufficientStockError(stock_id, amount, stock.quantity)
         stock.quantity -= amount
         return await self._repository.update(stock)
 
-    async def increase_quantity(self, stock_id: int, amount: int) -> Stock:
+    async def increase_quantity(
+        self, stock_id: int, amount: int, *, acting_branch_id: int | None = None
+    ) -> Stock:
         stock = await self.get_by_id(stock_id)
+        self._check_branch(stock, acting_branch_id)
         stock.quantity += amount
         return await self._repository.update(stock)
+
+    @staticmethod
+    def _check_branch(stock: Stock, acting_branch_id: int | None) -> None:
+        """`acting_branch_id=None` means no restriction (admin, or an
+        internal call already gated by a higher-level check — e.g. a sale's
+        own stock decrements after `create_sale` already validated the sale's
+        branch)."""
+        if acting_branch_id is not None and stock.branch_id != acting_branch_id:
+            raise PermissionDeniedError(
+                f"No podés modificar stock de otra sucursal (stock {stock.id} pertenece a "
+                f"la sucursal {stock.branch_id})"
+            )
 
     async def _ensure_references_exist(self, stock: Stock) -> None:
         if await self._product_repository.get_by_id(stock.product_id) is None:

@@ -4,7 +4,11 @@ from decimal import Decimal
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    PermissionDeniedError,
+)
 from app.domain.purchase import Purchase
 from app.domain.purchase_item import PurchaseItem
 from app.infrastructure.db.session import get_db
@@ -63,7 +67,11 @@ class PurchaseService:
         items: list[PurchaseItem],
         payment_method_id: int | None = None,
         payment_date: date | None = None,
+        *,
+        acting_branch_id: int | None = None,
     ) -> Purchase:
+        if acting_branch_id is not None and branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés registrar compras para otra sucursal")
         stocks_by_item = {}
         for item in items:
             stock = await self._stock_service.get_by_id(item.stock_id)
@@ -110,9 +118,16 @@ class PurchaseService:
         return purchase
 
     async def mark_paid(
-        self, purchase_id: int, payment_method_id: int, payment_date: date | None = None
+        self,
+        purchase_id: int,
+        payment_method_id: int,
+        payment_date: date | None = None,
+        *,
+        acting_branch_id: int | None = None,
     ) -> Purchase:
         purchase = await self.get_by_id(purchase_id)
+        if acting_branch_id is not None and purchase.branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés marcar como pagada una compra de otra sucursal")
         if purchase.is_paid:
             raise BusinessRuleViolationError(f"La compra {purchase_id} ya está pagada")
         if await self._payment_method_repository.get_by_id(payment_method_id) is None:
@@ -121,12 +136,16 @@ class PurchaseService:
             purchase_id, payment_method_id, payment_date or date.today()
         )
 
-    async def cancel_purchase(self, purchase_id: int) -> Purchase:
+    async def cancel_purchase(
+        self, purchase_id: int, *, acting_branch_id: int | None = None
+    ) -> Purchase:
         """Cancels a purchase in place of editing it: reverses the stock each
         PurchaseItem incremented, then marks the purchase cancelled. Doesn't
         revert the reference cost create_purchase may have written onto
         Product (no prior-cost history is kept — accepted limitation)."""
         purchase = await self.get_by_id(purchase_id)
+        if acting_branch_id is not None and purchase.branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés cancelar una compra de otra sucursal")
         if purchase.cancelled_at is not None:
             raise BusinessRuleViolationError(f"La compra {purchase_id} ya está cancelada")
 

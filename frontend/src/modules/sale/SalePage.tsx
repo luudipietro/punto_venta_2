@@ -3,12 +3,11 @@ import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreateSale, usePreviewSale } from '@/hooks/useSales'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { netAmountFor, summarizePayments } from '@/lib/payment'
+import { useAuthStore } from '@/stores/authStore'
 import { useCartStore } from '@/modules/sale/cartStore'
 import { CustomerPicker } from '@/modules/sale/CustomerPicker'
 import { ProductPicker } from '@/modules/sale/ProductPicker'
@@ -17,9 +16,9 @@ import { PaymentPanel, type PaymentLine } from '@/modules/sale/PaymentPanel'
 import type { SalePreviewRead } from '@/api/sale'
 
 export function SalePage() {
-  const { data: branches } = useBranches()
   const { data: paymentMethods } = usePaymentMethods()
   const { branchId, lines, discount, discountReason, setBranch, clear } = useCartStore()
+  const activeBranchId = useAuthStore((s) => s.activeBranchId)
   const [payments, setPayments] = useState<PaymentLine[]>([])
   const [preview, setPreview] = useState<SalePreviewRead>()
   const [customerId, setCustomerId] = useState<number | null>(null)
@@ -27,11 +26,14 @@ export function SalePage() {
   const previewMutation = usePreviewSale()
   const createSaleMutation = useCreateSale()
 
+  // The cart's branch always mirrors the topbar's active branch — there's no
+  // per-page selector anymore (see BranchSelector.tsx). Switching branch
+  // clears the cart, same as the old manual selector already did.
   useEffect(() => {
-    if (branchId === null && branches && branches.length > 0) {
-      setBranch(branches[0].id)
+    if (activeBranchId !== null && activeBranchId !== branchId) {
+      setBranch(activeBranchId)
     }
-  }, [branches, branchId, setBranch])
+  }, [activeBranchId, branchId, setBranch])
 
   const debouncedLines = useDebouncedValue(lines, 400)
   const debouncedDiscount = useDebouncedValue(discount, 400)
@@ -101,26 +103,7 @@ export function SalePage() {
 
   return (
     <div>
-      <PageHeader
-        title="Venta"
-        action={
-          <Select
-            value={branchId ? String(branchId) : undefined}
-            onValueChange={(value) => setBranch(Number(value))}
-          >
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Sucursal" />
-            </SelectTrigger>
-            <SelectContent>
-              {branches?.map((branch) => (
-                <SelectItem key={branch.id} value={String(branch.id)}>
-                  {branch.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        }
-      />
+      <PageHeader title="Venta" />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">

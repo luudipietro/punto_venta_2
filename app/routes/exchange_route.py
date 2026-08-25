@@ -2,10 +2,12 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import acting_branch_id_of, get_current_user
 from app.domain.exchange import Exchange
 from app.domain.exchange_new_item import ExchangeNewItem
 from app.domain.exchange_payment import ExchangePayment
 from app.domain.exchange_return_item import ExchangeReturnItem
+from app.domain.user import User
 from app.schemas.exchange_schema import (
     ExchangeCreate,
     ExchangeDetailRead,
@@ -39,7 +41,9 @@ async def get_exchange(
 
 @router.post("", response_model=ExchangeDetailRead, status_code=status.HTTP_201_CREATED)
 async def create_exchange(
-    payload: ExchangeCreate, service: ExchangeService = Depends(get_exchange_service)
+    payload: ExchangeCreate,
+    service: ExchangeService = Depends(get_exchange_service),
+    current_user: User = Depends(get_current_user),
 ) -> ExchangeDetailRead:
     returned_items = [
         ExchangeReturnItem(
@@ -56,16 +60,25 @@ async def create_exchange(
         for payment in payload.payments
     ]
     exchange = await service.create_exchange(
-        payload.sale_id, returned_items, new_items, payments, waive_refund=payload.waive_refund
+        payload.sale_id,
+        returned_items,
+        new_items,
+        payments,
+        waive_refund=payload.waive_refund,
+        acting_branch_id=acting_branch_id_of(current_user),
     )
     return _to_detail_read(exchange, returned_items, new_items, payments)
 
 
 @router.post("/{exchange_id}/cancel", response_model=ExchangeRead)
 async def cancel_exchange(
-    exchange_id: int, service: ExchangeService = Depends(get_exchange_service)
+    exchange_id: int,
+    service: ExchangeService = Depends(get_exchange_service),
+    current_user: User = Depends(get_current_user),
 ) -> ExchangeRead:
-    exchange = await service.cancel_exchange(exchange_id)
+    exchange = await service.cancel_exchange(
+        exchange_id, acting_branch_id=acting_branch_id_of(current_user)
+    )
     return ExchangeRead.model_validate(exchange)
 
 

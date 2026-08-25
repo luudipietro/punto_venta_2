@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import acting_branch_id_of, get_current_user
 from app.domain.purchase import Purchase
 from app.domain.purchase_item import PurchaseItem
+from app.domain.user import User
 from app.schemas.purchase_schema import (
     PurchaseCreate,
     PurchaseDetailRead,
@@ -32,7 +34,9 @@ async def get_purchase(
 
 @router.post("", response_model=PurchaseDetailRead, status_code=status.HTTP_201_CREATED)
 async def create_purchase(
-    payload: PurchaseCreate, service: PurchaseService = Depends(get_purchase_service)
+    payload: PurchaseCreate,
+    service: PurchaseService = Depends(get_purchase_service),
+    current_user: User = Depends(get_current_user),
 ) -> PurchaseDetailRead:
     items = [
         PurchaseItem(stock_id=item.stock_id, quantity=item.quantity, unit_cost=item.unit_cost)
@@ -44,6 +48,7 @@ async def create_purchase(
         items,
         payment_method_id=payload.payment_method_id,
         payment_date=payload.payment_date,
+        acting_branch_id=acting_branch_id_of(current_user),
     )
     return _to_detail_read(purchase, items)
 
@@ -53,16 +58,26 @@ async def pay_purchase(
     purchase_id: int,
     payload: PurchasePayInput,
     service: PurchaseService = Depends(get_purchase_service),
+    current_user: User = Depends(get_current_user),
 ) -> PurchaseRead:
-    purchase = await service.mark_paid(purchase_id, payload.payment_method_id, payload.payment_date)
+    purchase = await service.mark_paid(
+        purchase_id,
+        payload.payment_method_id,
+        payload.payment_date,
+        acting_branch_id=acting_branch_id_of(current_user),
+    )
     return PurchaseRead.model_validate(purchase)
 
 
 @router.post("/{purchase_id}/cancel", response_model=PurchaseRead)
 async def cancel_purchase(
-    purchase_id: int, service: PurchaseService = Depends(get_purchase_service)
+    purchase_id: int,
+    service: PurchaseService = Depends(get_purchase_service),
+    current_user: User = Depends(get_current_user),
 ) -> PurchaseRead:
-    purchase = await service.cancel_purchase(purchase_id)
+    purchase = await service.cancel_purchase(
+        purchase_id, acting_branch_id=acting_branch_id_of(current_user)
+    )
     return PurchaseRead.model_validate(purchase)
 
 

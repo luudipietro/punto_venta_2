@@ -13,6 +13,7 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.models import (  # noqa: F401
     branch_model,
     brand_model,
+    brand_settings_model,
     category_model,
     color_model,
     customer_model,
@@ -33,6 +34,7 @@ from app.infrastructure.db.models import (  # noqa: F401
     sale_payment_model,
     size_model,
     stock_model,
+    user_model,
 )
 
 # this is the Alembic Config object, which provides

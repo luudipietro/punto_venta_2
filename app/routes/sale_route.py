@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import acting_branch_id_of, get_current_user
 from app.domain.sale import Sale
 from app.domain.sale_item import SaleItem
 from app.domain.sale_payment import SalePayment
+from app.domain.user import User
 from app.schemas.sale_schema import (
     SaleCreate,
     SaleDetailRead,
@@ -76,9 +78,11 @@ async def get_sale(
 
 @router.post("/{sale_id}/cancel", response_model=SaleDetailRead)
 async def cancel_sale(
-    sale_id: int, service: SaleService = Depends(get_sale_service)
+    sale_id: int,
+    service: SaleService = Depends(get_sale_service),
+    current_user: User = Depends(get_current_user),
 ) -> SaleDetailRead:
-    sale = await service.cancel_sale(sale_id)
+    sale = await service.cancel_sale(sale_id, acting_branch_id=acting_branch_id_of(current_user))
     items = await service.get_items(sale_id)
     payments = await service.get_payments(sale_id)
     return _to_detail_read(sale, items, payments)
@@ -86,7 +90,9 @@ async def cancel_sale(
 
 @router.post("", response_model=SaleDetailRead, status_code=status.HTTP_201_CREATED)
 async def create_sale(
-    payload: SaleCreate, service: SaleService = Depends(get_sale_service)
+    payload: SaleCreate,
+    service: SaleService = Depends(get_sale_service),
+    current_user: User = Depends(get_current_user),
 ) -> SaleDetailRead:
     items = [
         SaleItem(stock_id=item.stock_id, quantity=item.quantity, unit_price=item.unit_price)
@@ -107,6 +113,7 @@ async def create_sale(
         payments,
         discount_reason=payload.discount_reason,
         customer_id=payload.customer_id,
+        acting_branch_id=acting_branch_id_of(current_user),
     )
     return _to_detail_read(sale, items, payments)
 

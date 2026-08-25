@@ -4,7 +4,11 @@ from decimal import Decimal
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    PermissionDeniedError,
+)
 from app.domain.exchange import Exchange
 from app.domain.exchange_new_item import ExchangeNewItem
 from app.domain.exchange_payment import ExchangePayment
@@ -90,10 +94,14 @@ class ExchangeService:
         new_items: list[ExchangeNewItem],
         payments: list[ExchangePayment],
         waive_refund: bool = False,
+        *,
+        acting_branch_id: int | None = None,
     ) -> Exchange:
         sale = await self._sale_repository.get_by_id(sale_id)
         if sale is None:
             raise EntityNotFoundError("Sale", sale_id)
+        if acting_branch_id is not None and sale.branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés registrar un cambio de otra sucursal")
 
         sold_quantity_by_stock: dict[int, int] = {}
         for sale_item in await self._sale_item_repository.list_by_sale(sale_id):
@@ -176,7 +184,9 @@ class ExchangeService:
 
         return exchange
 
-    async def cancel_exchange(self, exchange_id: int) -> Exchange:
+    async def cancel_exchange(
+        self, exchange_id: int, *, acting_branch_id: int | None = None
+    ) -> Exchange:
         """Reverses one exchange's stock effect: destocks what it had
         restocked (the returned items) and restocks what it had destocked
         (the new items given out), then marks it cancelled. Only allowed on
@@ -185,6 +195,8 @@ class ExchangeService:
         (computed against "already returned via non-cancelled exchanges")
         referring to a state that no longer matches reality."""
         exchange = await self.get_by_id(exchange_id)
+        if acting_branch_id is not None and exchange.branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés cancelar un cambio de otra sucursal")
         if exchange.cancelled_at is not None:
             raise BusinessRuleViolationError(f"El cambio {exchange_id} ya está cancelado")
 

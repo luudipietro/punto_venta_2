@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     media_root: Path = Path("media")
     media_url: str = "/media"
 
+    # JWT signing — override via the SECRET_KEY env var in real deployments.
+    secret_key: str = "dev-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 12
+
 
 @lru_cache
 def get_settings() -> Settings:

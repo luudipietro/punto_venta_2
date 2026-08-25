@@ -116,15 +116,114 @@ validates upfront that every item's `Stock.branch_id` matches the purchase's own
 (`BusinessRuleViolationError` otherwise) — stock is always identified by `stock_id`, not
 `branch_id`, so nothing else in the codebase catches a mismatched branch for you.
 
+## Authentication and authorization
+
+The app requires a login — every route except `POST /auth/login` and `GET /brand-settings` needs a
+valid JWT. Two roles: `admin` and `empleado` (`app/domain/user.py`'s `UserRole` StrEnum). An
+`empleado` has a fixed `branch_id` they can never change; an `admin` has `branch_id = None` and
+works across all branches.
+
+- **`User`** (`app/domain/user.py`) follows the `Customer` entity's file-by-file pattern (domain
+  dataclass → `app/infrastructure/db/models/user_model.py` → `app/repositories/user_repository.py`
+  → schemas → service → route) with one deliberate deviation: `UserService`
+  (`app/services/user_service.py`) does **not** subclass the generic `CrudService` — hashing the
+  password and validating the role/branch invariant (`empleado` requires a `branch_id`, `admin`
+  must not have one) are exactly the "real business rules" `base_service.py`'s own docstring says
+  warrant skipping the base class. `UserCreate`/`UserUpdate` accept a plaintext `password` field;
+  `UserRead` never exposes `password_hash`. `UserRepository` adds a `get_by_username` lookup (no
+  prior exact-match-by-non-id-field precedent in the codebase — `CustomerRepository.list_all`'s `q`
+  param does substring `ilike`, not exact match).
+- **Password hashing and JWT** live in `app/core/security.py` (framework-agnostic, like
+  `config.py`/`exceptions.py`): `bcrypt.hashpw`/`checkpw` directly (plain `bcrypt`, not `passlib` —
+  avoids passlib's stale bcrypt-72-byte-warning issue with modern bcrypt versions) and
+  `jwt.encode`/`decode` (PyJWT) with `Settings.secret_key`/`jwt_algorithm`/
+  `access_token_expire_minutes` (12h) from `app/core/config.py`. The JWT payload carries `sub` (user
+  id), `role`, and `branch_id` — `branch_id` is only ever meaningful for an `empleado`'s token
+  (baked in at login), never trusted from an admin's token for authorization decisions (an admin's
+  *active* branch is a client-side UI convenience only, see below).
+- **`app/core/auth.py`** — `get_current_user` (via `HTTPBearer`, not `OAuth2PasswordBearer`: nothing
+  in this app uses Swagger's OAuth2 flow UI, and `HTTPBearer(auto_error=False)` lets it raise its
+  own Spanish 401 message) decodes the token and re-fetches the `User` row fresh from the DB every
+  request (so a deleted/edited user is reflected immediately, not just at token-issue time);
+  `require_admin` wraps it with a role check; `acting_branch_id_of(user)` returns `None` for an
+  admin (no restriction) or the user's `branch_id` for an `empleado` — this is the one helper every
+  branch-scoped route calls before passing the result into a service method.
+- **Login** (`POST /auth/login`, `app/routes/auth_route.py`) takes a plain JSON body
+  (`LoginRequest`), not `OAuth2PasswordRequestForm` — keeps it consistent with the rest of the API
+  (and the frontend's `apiClient`) always speaking JSON, never form-encoded. `GET /auth/me` lets the
+  frontend validate a persisted token on page reload without re-sending credentials.
+- **Router-level gating** (`app/routes/api_router.py`): a `dependencies=[Depends(get_current_user)]`
+  list is passed to `include_router(...)` for every router except `auth_router` (login must be
+  reachable unauthenticated), `user_router` (already fully admin-gated at its own `APIRouter(...)`
+  construction), and `brand_settings_router` (its `GET` is deliberately public — the login page
+  itself needs to render the custom logo/company name before anyone is authenticated; its `PUT` is
+  admin-only via a route-level `dependencies=[Depends(require_admin)]` instead). Catalog-management
+  routers with a mixed read/write split (Category, Brand, Color, Size, PaymentMethod, Promotion,
+  Product, Branch) additionally put `dependencies=[Depends(require_admin)]` directly on each
+  mutating endpoint's decorator, so a non-admin's `GET` still succeeds (needed for dropdowns/search
+  everywhere in the POS) while `POST`/`PUT`/`DELETE` 403. Sale/Stock/Purchase/Exchange/Expense stay
+  uniformly open to any logged-in user at the router level — their branch restriction is enforced
+  one layer down, inside the service (see next point), not by blocking the route entirely.
+- **Branch-scoped authorization pattern**: `SaleService.create_sale`/`cancel_sale`,
+  `PurchaseService.create_purchase`/`mark_paid`/`cancel_purchase`,
+  `ExchangeService.create_exchange`/`cancel_exchange`, `ExpenseService.create`/`update`, and
+  `StockService.increase_quantity`/`decrease_quantity` each gained an **optional, keyword-only**
+  `acting_branch_id: int | None = None` parameter — optional and keyword-only specifically so every
+  existing test that constructs these services directly with positional args keeps working
+  unchanged. `None` means "no restriction" (an admin, or an internal call already gated by a
+  higher-level check — e.g. `create_sale`'s own `_stock_service.decrease_quantity(...)` calls don't
+  re-pass `acting_branch_id`, since the top-level branch check already ran). When the branch doesn't
+  match, a new `PermissionDeniedError` (`app/core/exceptions.py`, mapped to HTTP 403 in
+  `exception_handlers.py`) is raised — chosen over reusing `BusinessRuleViolationError` (422)
+  because this is semantically "you're authenticated, this just isn't yours to do," not an
+  invariant violation; this mirrors the pre-existing precedent in `PurchaseService.create_purchase`
+  of checking `stock.branch_id != branch_id`, just parameterized by *who's* acting instead of always
+  enforcing the same check unconditionally. Every mutating route in these five areas computes
+  `acting_branch_id_of(current_user)` and forwards it into the service call — see any of
+  `sale_route.py`/`purchase_route.py`/`exchange_route.py`/`expense_route.py`/`stock_route.py`'s
+  `/increase`/`/decrease` handlers for the exact shape. Stock **reads** are never restricted — an
+  empleado can see stock in every branch (read-only), only *writing* to another branch's stock is
+  blocked. Purchases and Expenses are **not** admin-only — the user explicitly confirmed an empleado
+  should be able to register both, scoped to their own branch, same as Sales.
+- **Seeded admin account**: the first Alembic migration for `users`
+  (`alembic/versions/0c235a9d5c3c_add_users_table.py`) inserts one row via a raw `op.execute(...)` —
+  username `admin`, password `admin123` (change it from `/catalogo/usuarios` after first login), a
+  precomputed bcrypt hash pasted as a literal string. This is the **first** migration in the repo
+  that seeds data (every prior migration was schema-only) — the hash is hardcoded rather than
+  imported from `app.core.security` to keep migrations decoupled from application code that might
+  change independently.
+- **Test fixture**: adding auth would have broken every existing route test (`tests/conftest.py`'s
+  `client` fixture made unauthenticated requests) — instead of touching ~15 test files, the `client`
+  fixture now also overrides `get_current_user` to return a fixed admin `User`, so every existing
+  test transparently runs "as admin" with zero changes to its own file. A second fixture,
+  `client_no_auth`, skips that override for the newer tests that specifically exercise real
+  401/403/branch-mismatch behavior (`tests/test_auth_routes.py`, `tests/test_route_authorization.py`,
+  `tests/test_branch_authorization.py`).
+
 ## Scope
 
 Fully implemented, following the same per-entity file pattern throughout: Category, Brand, Color
 (with `hex_code`), Size, Branch, Product/ProductImage, Stock (with `/increase` and `/decrease`
 quantity-adjustment endpoints), PaymentMethod (with `is_cash`/`surcharge_percentage`), Customer
 (with `dni`/`name`), Sale/SaleItem/SalePayment, Purchase/PurchaseItem, Promotion,
-Exchange/ExchangeReturnItem/ExchangeNewItem/ExchangePayment, and Expense. A React/Vite frontend
-(`frontend/`, see the **Frontend** section below) covers the whole API. The original domain model
-is now fully covered.
+Exchange/ExchangeReturnItem/ExchangeNewItem/ExchangePayment, Expense, User (see **Authentication and
+authorization** above), and BrandSettings (a single-row logo/company-name settings table, see
+below). A React/Vite frontend (`frontend/`, see the **Frontend** section below) covers the whole
+API. The original domain model is now fully covered.
+
+- **BrandSettings** (`app/domain/brand_settings.py`, table `brand_settings`) is a deliberately
+  minimal single-row table (`id` always `1`) — there's no generic key-value settings pattern
+  elsewhere in this codebase to mirror, so this is the simplest possible shape rather than a more
+  general "app settings" abstraction. `BrandSettingsService.get()` returns a hardcoded in-code
+  default (`"Punto de Venta"` / `/brand/logo.svg`, matching `frontend/src/theme/brand.config.ts`'s
+  original static values) when the table is empty, so no migration-time seed row is needed.
+  `PUT /brand-settings` (admin-only) upserts it; logo upload reuses the existing
+  `POST /uploads/images` endpoint unchanged (`ProductsPage.tsx`'s cover-photo upload flow) — nothing
+  about that endpoint is product-specific, `BrandSettingsPage.tsx` just calls the same
+  `uploadProductImage()` helper and stores the returned URL. `frontend/src/theme/brand.config.ts`
+  itself is untouched (its `colors` light/dark tokens stay static/code-only) — only the logo/company
+  name gained a DB-backed override, read via `useBrandSettings()` with the static file's values as
+  the fallback/loading-state default so there's no flash-of-no-logo before the query resolves.
 
 - **All API error messages are in Spanish**: `app/core/exceptions.py` translates domain exceptions
   via a small `_ENTITY_NAMES_ES` lookup (`Product` → "producto", `Stock` → "stock", etc.) baked into
@@ -538,6 +637,13 @@ Two more migrations, also applied: `182dfaa4e22c` (`exchanges.cancelled_at`, nul
 nullable — pure relax-a-constraint, no backfill, same shape as the `products.category_id`/
 `brand_id` change above).
 
+Two more migrations, also applied: `0c235a9d5c3c` (new `users` table, `username` unique, `role` a
+Postgres enum, nullable `branch_id` FK — and the **first** migration in this repo to seed data, a
+raw `op.execute("INSERT INTO users ...")` for the bootstrap `admin`/`admin123` account with a
+precomputed bcrypt hash pasted as a literal, since migrations don't import application code) and
+`04537794570f` (new `brand_settings` table, no seed row — `BrandSettingsService.get()` falls back
+to an in-code default when the table is empty instead).
+
 ## Frontend
 
 `frontend/` is a React 19 + Vite + TypeScript SPA (no SSR) that consumes the API above end to end.
@@ -548,12 +654,21 @@ for the POS cart only, React Router, React Hook Form + Zod where forms need real
 
 ```
 frontend/src/
-  theme/            # brandConfig (logo/name/colors) + ThemeProvider — the one place to
-                     # re-skin the app per client; see brand.config.ts
+  theme/            # brandConfig (logo/name/colors, static fallback only now — see
+                     # BrandSettings above) + ThemeProvider; see brand.config.ts
+  stores/           # authStore.ts — the only other Zustand store besides cartStore.ts;
+                     # token/user/activeBranchId + persist middleware (localStorage)
   api/              # one file per entity: typed fetch functions, mirrors the Pydantic schemas
   hooks/            # TanStack Query hooks; createCrudHooks.ts / createCrudApi (api/base.ts)
                      # generate list/get/create/update/remove for the plain catalog entities
   modules/
+    auth/           # LoginPage.tsx — plain username/password form, redirects to
+                     # location.state.from (or /venta) on success
+    users/          # UsersPage.tsx (admin-only) — not built on SimpleCatalogPage, since the
+                     # form has conditional logic (branch field only for role=empleado,
+                     # password optional on edit = "leave unchanged") that page doesn't support
+    settings/       # BrandSettingsPage.tsx (admin-only) — logo upload (reuses
+                     # uploadProductImage) + company name, see BrandSettings above
     catalog/        # SimpleCatalogPage.tsx: generic table+dialog CRUD screen, config-driven
                      # (Field.type now includes 'checkbox', used by is_cash) — Category, Brand,
                      # Size, Branch, PaymentMethod, Customer use it as-is; Color and Product got
@@ -596,11 +711,53 @@ frontend/src/
                      # between a "Ver detalle" row action on /promociones and a link next to
                      # "Promoción aplicada" in CartPanel.tsx during a sale
     shared/useStockOptions.ts  # stock-row -> product/variant/image/price resolver, see gotcha below
-  components/       # Layout (sidebar/topbar/theme toggle), PageHeader, ui/ (shadcn)
+  components/       # Layout (sidebar + topbar: BranchSelector + user/logout; theme toggle in
+                     # sidebar footer), PageHeader, RequireAuth.tsx/RequireAdmin.tsx (route
+                     # guards), BranchSelector.tsx, ui/ (shadcn)
 ```
 
 Notable frontend-specific decisions, in case they look surprising:
 
+- **Auth/branch state lives in Zustand (`authStore.ts`), not React context** — `token`, `user`
+  (`id`/`username`/`role`/`branch_id`), and `activeBranchId` are one store, wrapped in Zustand's
+  `persist` middleware (the *first* use of `persist` in this codebase — chosen over hand-rolling
+  `useEffect`+`localStorage` the way `ThemeProvider.tsx` does for the theme alone, since the session
+  needs to survive a page reload and `persist` is the standard tool for exactly that). `api/
+  client.ts` reads `useAuthStore.getState()` directly (not the hook) since it's plain functions, not
+  a component, to attach `Authorization: Bearer <token>`; on a 401 response it calls `.logout()`
+  directly, and `RequireAuth`'s redirect happens naturally on the next render — no manual
+  `window.location` needed anywhere.
+- **One active-branch selector, not one per page**: `SalePage.tsx`, `SalesHistoryPage.tsx`, and
+  `PurchasesPage.tsx` all used to have their own branch `<Select>` (each defaulting to
+  `branches[0]` independently) — these were **removed entirely** in favor of a single
+  `BranchSelector.tsx` in the topbar (`Layout.tsx`), reading/writing `authStore`'s
+  `activeBranchId`. Each of those three pages now has a `useEffect` that keeps its own local
+  "working branch" concept (`cartStore.branchId` for `SalePage`, a plain destructure for the other
+  two) in sync with `activeBranchId` — changing the topbar selector clears the cart (same behavior
+  the old per-page selector already had) and re-scopes purchases/daily-balance. For an `empleado`,
+  `BranchSelector` renders as plain text (their branch, from `setActiveBranch`'s no-op guard in
+  `authStore.ts` — see Authentication above) instead of a `<Select>`; for an admin whose
+  `activeBranchId` is still `null` (first login), `Layout.tsx` auto-selects `branches[0]`, mirroring
+  what `SalePage.tsx` used to do on its own. **`StockPage.tsx`'s two branch pickers are treated
+  differently**: the "Nuevo" create-dialog's branch field became a fixed label (`activeBranchId`,
+  no longer editable — this was the exact "reselect the branch on every product" friction point the
+  user asked to remove), but the stock **table's** `branchFilter` (viewing/filtering stock across
+  branches) was deliberately left as a manual `<Select>`, unchanged — cross-branch stock visibility
+  is an intentional feature (an empleado can look up whether another branch has stock), not
+  something that should collapse to "only my branch."
+- **Admin-only nav items are hidden, not just route-guarded**: `Layout.tsx`'s `catalogNav` array
+  (Categorías/Marcas/Colores/Talles/Sucursales/Métodos de pago/Usuarios/Configuración) only renders
+  when `role === 'admin'` — an empleado never sees these links at all, and navigating to one of
+  those URLs directly redirects to `/venta` via the `RequireAdmin` route wrapper
+  (`routes.tsx` nests those routes' `<Route>`s inside `<Route element={<RequireAdmin/>}>`, itself
+  inside `<Route element={<RequireAuth/>}>` — both wrappers just render `<Outlet/>` or `<Navigate/>`
+  depending on `authStore`). `Clientes` moved out of `catalogNav` into the always-visible
+  `primaryNav`, since Customer management stays shared with `empleado` (no admin restriction).
+- **No `/usuarios` self-service** — password changes for any account (including an admin's own) go
+  through `/catalogo/usuarios`'s edit dialog (leave the password field blank to keep the current
+  hash), not a "change my password" flow for the logged-in user themselves. Acceptable for now
+  since the only accounts are created/managed by an admin in the first place; revisit if
+  self-service ever becomes a real ask.
 - **Discount % vs $**: the backend only ever accepts an absolute `discount` amount — there is no
   percentage concept in the API. `CartPanel.tsx` keeps a `%`/`$` toggle and a raw input as
   *local UI state*, and converts to an absolute amount (recomputed against the live subtotal,
@@ -668,21 +825,22 @@ Raised during manual Postman/pgAdmin testing of the flows above; deliberately de
   past that check. The `uq_stock_variant` `IntegrityError` → `BusinessRuleViolationError` in
   `StockService.create` is the real backend enforcement, and it still doesn't cover the `color_id`/
   `size_id` both-`NULL` case (see Stock above) — a race there would silently create a second row.
-- **No login/user/role system yet**: everyone using the app today has full access to every screen
-  and every branch — there's no `User` entity, no authentication, and no concept of "admin" vs
-  "empleado". The user explicitly asked for this (admin can manage catalog/logo/branches and pick
-  which branch they're working in; an employee is tied to one branch, can't sell for or adjust
-  stock in another, and can only *view* whether another branch has stock) and explicitly deferred
-  it to a future round, since it's the single largest architectural change on the table — it needs
-  its own plan (auth mechanism, session/token storage, a `Branch`-scoped permission model touching
-  nearly every route) rather than being bundled into a round of smaller fixes. Until it exists,
-  `StockPage.tsx`/`ProductsPage.tsx`/the POS itself always require picking a branch explicitly
-  rather than inferring it from "whoever is logged in."
 - **No responsive/mobile layout yet**: the sidebar-based `Layout` component assumes a desktop-width
-  viewport; there's no hamburger/drawer navigation for tablets or phones. Also explicitly requested
-  and explicitly deferred alongside the login/roles work above, since a real redesign (not just CSS
-  tweaks) is warranted once the navigation structure is settled by whatever the login/roles round
-  decides about role-based menu visibility.
+  viewport; there's no hamburger/drawer navigation for tablets or phones. Explicitly deferred
+  alongside the login/roles work (now implemented — see **Authentication and authorization**
+  above), since a real redesign (not just CSS tweaks) is warranted now that the nav structure is
+  settled (admin-only `catalogNav` vs always-visible `primaryNav`).
+- **No self-service password change / no "forgot password" flow**: only an admin can change any
+  account's password (including their own), via `/catalogo/usuarios`'s edit dialog. The seeded
+  bootstrap account (`admin`/`admin123`) should be changed immediately after first login in any real
+  deployment — nothing in the app forces or reminds an admin to do this.
+- **JWTs can't be revoked before they expire** (12h, `Settings.access_token_expire_minutes`):
+  deleting or editing a `User` takes effect on their *next* request (since `get_current_user`
+  re-fetches the row every time), but a token already issued keeps decoding successfully — and thus
+  keeps *authenticating* — until it naturally expires, even if the account was deleted in the
+  meantime (the re-fetch would then 404 on the next request, not immediately). There's no token
+  blocklist/refresh-token rotation. Acceptable for a single-POS internal tool; would need revisiting
+  before exposing this to untrusted users or a longer session window.
 
 None of these are scheduled — flag them to the user before picking one up, since each implies a
 design decision (e.g. how usage caps should be scoped, whether category combos should be

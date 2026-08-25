@@ -22,6 +22,7 @@ _ENTITY_NAMES_ES = {
     "Purchase": "compra",
     "Expense": "gasto",
     "Promotion": "promoción",
+    "User": "usuario",
 }
 
 
@@ -50,3 +51,11 @@ class InsufficientStockError(DomainError):
 
 class BusinessRuleViolationError(DomainError):
     """Raised when an operation would break a domain invariant (e.g. totals mismatch)."""
+
+
+class PermissionDeniedError(DomainError):
+    """Raised when an authenticated user is not allowed to perform this
+    specific action (wrong role, or an empleado acting outside their
+    assigned branch) — distinct from BusinessRuleViolationError (422,
+    "the request itself is invalid") since this is "you're authenticated,
+    this just isn't yours to do" (403)."""

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
@@ -27,7 +27,6 @@ import {
 } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useBranches } from '@/hooks/useBranches'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreateExpense, useDeleteExpense, useExpenses } from '@/hooks/useExpenses'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
@@ -35,6 +34,7 @@ import { useDailyBalance } from '@/hooks/useDailyBalance'
 import { usePurchases } from '@/hooks/usePurchases'
 import { useSales } from '@/hooks/useSales'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { useAuthStore } from '@/stores/authStore'
 
 const artDateKeyFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Argentina/Buenos_Aires',
@@ -62,16 +62,10 @@ function emptyExpense(branchId: number): ExpenseInput {
 }
 
 export function SalesHistoryPage() {
-  const { data: branches } = useBranches()
   const { data: paymentMethods } = usePaymentMethods()
   const queryClient = useQueryClient()
 
-  const [branchId, setBranchId] = useState<number | null>(null)
-  useEffect(() => {
-    if (branchId === null && branches && branches.length > 0) {
-      setBranchId(branches[0].id)
-    }
-  }, [branches, branchId])
+  const branchId = useAuthStore((s) => s.activeBranchId)
 
   const { data: balances, isLoading } = useDailyBalance(branchId ?? undefined)
   const { data: sales } = useSales()
@@ -126,22 +120,6 @@ export function SalesHistoryPage() {
         description="Balance de caja diario (efectivo) por sucursal"
         action={
           <div className="flex gap-2">
-            <Select
-              value={branchId ? String(branchId) : undefined}
-              onValueChange={(value) => setBranchId(Number(value))}
-            >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Sucursal" />
-              </SelectTrigger>
-              <SelectContent>
-                {branches?.map((branch) => (
-                  <SelectItem key={branch.id} value={String(branch.id)}>
-                    {branch.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
                 <Button onClick={openCreateDialog} disabled={branchId === null}>

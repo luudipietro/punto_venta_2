@@ -1,4 +1,13 @@
+import { useAuthStore } from '@/stores/authStore'
+
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+
+/** Reads the store's current state directly (not the hook) — this file is
+ * plain functions, not a component. */
+function authHeader(): Record<string, string> {
+  const token = useAuthStore.getState().token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 export class ApiError extends Error {
   status: number
@@ -40,9 +49,18 @@ interface RequestOptions {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? 'GET',
-    headers: options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: {
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...authHeader(),
+    },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   })
+
+  if (response.status === 401) {
+    // Clears the session — the route guard reacts on the next render and
+    // redirects to /login, no manual navigation needed here.
+    useAuthStore.getState().logout()
+  }
 
   if (!response.ok) {
     throw new ApiError(await parseErrorMessage(response), response.status)
@@ -59,7 +77,15 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', body: formData })
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: authHeader(),
+    body: formData,
+  })
+
+  if (response.status === 401) {
+    useAuthStore.getState().logout()
+  }
 
   if (!response.ok) {
     throw new ApiError(await parseErrorMessage(response), response.status)

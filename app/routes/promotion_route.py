@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.promotion import Promotion
 from app.domain.promotion_item import PromotionItem
 from app.schemas.promotion_schema import (
@@ -30,7 +31,12 @@ async def get_promotion(
     return _to_detail_read(promotion, items)
 
 
-@router.post("", response_model=PromotionDetailRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=PromotionDetailRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 async def create_promotion(
     payload: PromotionCreate, service: PromotionService = Depends(get_promotion_service)
 ) -> PromotionDetailRead:
@@ -56,7 +62,11 @@ async def create_promotion(
     return _to_detail_read(created, items)
 
 
-@router.put("/{promotion_id}", response_model=PromotionDetailRead)
+@router.put(
+    "/{promotion_id}",
+    response_model=PromotionDetailRead,
+    dependencies=[Depends(require_admin)],
+)
 async def update_promotion(
     promotion_id: int,
     payload: PromotionUpdate,
@@ -84,7 +94,9 @@ async def update_promotion(
     return _to_detail_read(updated, items)
 
 
-@router.delete("/{promotion_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{promotion_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_promotion(
     promotion_id: int, service: PromotionService = Depends(get_promotion_service)
 ) -> None:

@@ -4,7 +4,11 @@ from decimal import Decimal
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    EntityNotFoundError,
+    PermissionDeniedError,
+)
 from app.domain.sale import Sale
 from app.domain.sale_item import SaleItem
 from app.domain.sale_payment import SalePayment
@@ -186,7 +190,11 @@ class SaleService:
         payments: list[SalePayment],
         discount_reason: str | None = None,
         customer_id: int | None = None,
+        *,
+        acting_branch_id: int | None = None,
     ) -> Sale:
+        if acting_branch_id is not None and branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés registrar ventas para otra sucursal")
         computed = await self.compute_totals(branch_id, discount, items, discount_reason)
         if customer_id is not None:
             if await self._customer_repository.get_by_id(customer_id) is None:
@@ -233,7 +241,7 @@ class SaleService:
 
         return sale
 
-    async def cancel_sale(self, sale_id: int) -> Sale:
+    async def cancel_sale(self, sale_id: int, *, acting_branch_id: int | None = None) -> Sale:
         """Cancels a sale in place of editing it: restores stock, then marks
         the sale cancelled. A cancelled sale stays visible in history for the
         record, but no longer counts toward cash balances (see ReportService)
@@ -249,6 +257,8 @@ class SaleService:
         exchange + given as a new item via exchange, which nets out to
         exactly what's currently "out" with the customer."""
         sale = await self.get_by_id(sale_id)
+        if acting_branch_id is not None and sale.branch_id != acting_branch_id:
+            raise PermissionDeniedError("No podés cancelar una venta de otra sucursal")
         if sale.cancelled_at is not None:
             raise BusinessRuleViolationError(f"La venta {sale_id} ya está cancelada")
 

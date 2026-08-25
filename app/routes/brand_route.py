@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.brand import Brand
 from app.schemas.brand_schema import BrandCreate, BrandRead
 from app.services.brand_service import BrandService, get_brand_service
@@ -17,13 +18,20 @@ async def get_brand(brand_id: int, service: BrandService = Depends(get_brand_ser
     return await service.get_by_id(brand_id)
 
 
-@router.post("", response_model=BrandRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=BrandRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 async def create_brand(
     payload: BrandCreate, service: BrandService = Depends(get_brand_service)
 ) -> Brand:
     return await service.create(Brand(**payload.model_dump()))
 
 
-@router.delete("/{brand_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{brand_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_brand(brand_id: int, service: BrandService = Depends(get_brand_service)) -> None:
     await service.delete(brand_id)

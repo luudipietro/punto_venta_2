@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.size import Size
 from app.schemas.size_schema import SizeCreate, SizeRead
 from app.services.size_service import SizeService, get_size_service
@@ -17,13 +18,20 @@ async def get_size(size_id: int, service: SizeService = Depends(get_size_service
     return await service.get_by_id(size_id)
 
 
-@router.post("", response_model=SizeRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=SizeRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 async def create_size(
     payload: SizeCreate, service: SizeService = Depends(get_size_service)
 ) -> Size:
     return await service.create(Size(**payload.model_dump()))
 
 
-@router.delete("/{size_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{size_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_size(size_id: int, service: SizeService = Depends(get_size_service)) -> None:
     await service.delete(size_id)

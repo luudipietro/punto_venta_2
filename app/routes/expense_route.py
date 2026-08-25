@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import acting_branch_id_of, get_current_user
 from app.domain.expense import Expense
+from app.domain.user import User
 from app.schemas.expense_schema import ExpenseCreate, ExpenseRead, ExpenseUpdate
 from app.services.expense_service import ExpenseService, get_expense_service
 
@@ -23,9 +25,13 @@ async def get_expense(
 
 @router.post("", response_model=ExpenseRead, status_code=status.HTTP_201_CREATED)
 async def create_expense(
-    payload: ExpenseCreate, service: ExpenseService = Depends(get_expense_service)
+    payload: ExpenseCreate,
+    service: ExpenseService = Depends(get_expense_service),
+    current_user: User = Depends(get_current_user),
 ) -> Expense:
-    return await service.create(Expense(**payload.model_dump()))
+    return await service.create(
+        Expense(**payload.model_dump()), acting_branch_id=acting_branch_id_of(current_user)
+    )
 
 
 @router.put("/{expense_id}", response_model=ExpenseRead)
@@ -33,8 +39,13 @@ async def update_expense(
     expense_id: int,
     payload: ExpenseUpdate,
     service: ExpenseService = Depends(get_expense_service),
+    current_user: User = Depends(get_current_user),
 ) -> Expense:
-    return await service.update(expense_id, Expense(**payload.model_dump()))
+    return await service.update(
+        expense_id,
+        Expense(**payload.model_dump()),
+        acting_branch_id=acting_branch_id_of(current_user),
+    )
 
 
 @router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)

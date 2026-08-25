@@ -17,6 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
+import { useAuthStore } from '@/stores/authStore'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreatePurchase, usePurchases } from '@/hooks/usePurchases'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
@@ -39,9 +40,9 @@ export function PurchasesPage() {
   const { data: branches } = useBranches()
   const { data: paymentMethods } = usePaymentMethods()
   const createMutation = useCreatePurchase()
+  const branchId = useAuthStore((s) => s.activeBranchId)
 
   const [open, setOpen] = useState(false)
-  const [branchId, setBranchId] = useState<number | null>(null)
   const [supplierName, setSupplierName] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<number | null>(null)
@@ -58,7 +59,6 @@ export function PurchasesPage() {
   const { options: stockOptions } = useStockOptions(branchId)
 
   function openCreateDialog() {
-    setBranchId(null)
     setSupplierName('')
     setItems([])
     setIsPaid(false)
@@ -120,24 +120,9 @@ export function PurchasesPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-1.5">
                     <Label>Sucursal</Label>
-                    <Select
-                      value={branchId ? String(branchId) : undefined}
-                      onValueChange={(value) => {
-                        setBranchId(Number(value))
-                        setItems([])
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Elegir" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {branches?.map((branch) => (
-                          <SelectItem key={branch.id} value={String(branch.id)}>
-                            {branch.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      {branches?.find((branch) => branch.id === branchId)?.name ?? '-'}
+                    </p>
                   </div>
                   <div className="grid gap-1.5">
                     <Label htmlFor="supplier">Proveedor</Label>

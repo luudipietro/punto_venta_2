@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
+from app.core.auth import require_admin
 from app.domain.color import Color
 from app.schemas.color_schema import ColorCreate, ColorRead
 from app.services.color_service import ColorService, get_color_service
@@ -17,13 +18,20 @@ async def get_color(color_id: int, service: ColorService = Depends(get_color_ser
     return await service.get_by_id(color_id)
 
 
-@router.post("", response_model=ColorRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ColorRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
+)
 async def create_color(
     payload: ColorCreate, service: ColorService = Depends(get_color_service)
 ) -> Color:
     return await service.create(Color(**payload.model_dump()))
 
 
-@router.delete("/{color_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{color_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_admin)]
+)
 async def delete_color(color_id: int, service: ColorService = Depends(get_color_service)) -> None:
     await service.delete(color_id)

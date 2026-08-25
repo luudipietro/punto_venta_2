@@ -31,6 +31,7 @@ import { useBranches } from '@/hooks/useBranches'
 import { useColors } from '@/hooks/useColors'
 import { useSizes } from '@/hooks/useSizes'
 import { useCreateStock, useDecreaseStock, useDeleteStock, useIncreaseStock, useStocks } from '@/hooks/useStocks'
+import { useAuthStore } from '@/stores/authStore'
 import type { Stock, StockInput } from '@/api/stock'
 
 const emptyInput: StockInput = {
@@ -47,6 +48,7 @@ export function StockPage() {
   const { data: branches } = useBranches()
   const { data: colors } = useColors()
   const { data: sizes } = useSizes()
+  const activeBranchId = useAuthStore((s) => s.activeBranchId)
 
   const createMutation = useCreateStock()
   const removeMutation = useDeleteStock()
@@ -116,7 +118,7 @@ export function StockPage() {
   }, [rows, search, branchFilter, sortField, sortDir])
 
   function openCreateDialog() {
-    setForm(emptyInput)
+    setForm({ ...emptyInput, branch_id: activeBranchId ?? 0 })
     setOpen(true)
   }
 
@@ -215,21 +217,9 @@ export function StockPage() {
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Sucursal</Label>
-                  <Select
-                    value={form.branch_id ? String(form.branch_id) : undefined}
-                    onValueChange={(value) => setForm((prev) => ({ ...prev, branch_id: Number(value) }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Elegir" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {branches?.map((branch) => (
-                        <SelectItem key={branch.id} value={String(branch.id)}>
-                          {branch.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    {branches?.find((branch) => branch.id === form.branch_id)?.name ?? '-'}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-1.5">

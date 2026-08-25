@@ -11,12 +11,15 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+from app.core.auth import get_current_user
+from app.domain.user import User, UserRole
 from app.infrastructure.db.base import Base
 
 # Imported for their side effect of registering tables on Base.metadata.
 from app.infrastructure.db.models import (  # noqa: F401
     branch_model,
     brand_model,
+    brand_settings_model,
     category_model,
     color_model,
     customer_model,
@@ -37,6 +40,7 @@ from app.infrastructure.db.models import (  # noqa: F401
     sale_payment_model,
     size_model,
     stock_model,
+    user_model,
 )
 from app.infrastructure.db.session import get_db
 from app.main import app
@@ -85,6 +89,35 @@ async def db_session(
 async def client(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncGenerator[AsyncClient, None]:
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    async def override_get_current_user() -> User:
+        return User(id=1, username="admin", password_hash="", role=UserRole.ADMIN, branch_id=None)
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as async_client:
+        yield async_client
+
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client_no_auth(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncGenerator[AsyncClient, None]:
+    """Same as `client`, but without the `get_current_user` override — for
+    tests that need to exercise real 401/403 behavior."""
+
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
             try:

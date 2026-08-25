@@ -1,0 +1,92 @@
+from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.security import hash_password, verify_password
+from app.domain.user import User, UserRole
+from app.infrastructure.db.session import get_db
+from app.repositories.branch_repository import BranchRepository, SqlAlchemyBranchRepository
+from app.repositories.user_repository import SqlAlchemyUserRepository, UserRepository
+
+
+class UserService:
+    """Not a `CrudService` subclass — password hashing and the role/branch
+    consistency rule (empleado requires a branch, admin must not have one)
+    are exactly the kind of "real business rule" `CrudService`'s own
+    docstring says warrants skipping the generic base."""
+
+    entity_name = "User"
+
+    def __init__(self, repository: UserRepository, branch_repository: BranchRepository) -> None:
+        self._repository = repository
+        self._branch_repository = branch_repository
+
+    async def list_all(self) -> list[User]:
+        return await self._repository.list_all()
+
+    async def get_by_id(self, user_id: int) -> User:
+        user = await self._repository.get_by_id(user_id)
+        if user is None:
+            raise EntityNotFoundError("User", user_id)
+        return user
+
+    async def _validate_role_branch(self, role: UserRole, branch_id: int | None) -> None:
+        if role == UserRole.EMPLEADO and branch_id is None:
+            raise BusinessRuleViolationError("Un empleado debe tener una sucursal asignada")
+        if role == UserRole.ADMIN and branch_id is not None:
+            raise BusinessRuleViolationError("Un administrador no debe tener una sucursal fija")
+        if branch_id is not None and await self._branch_repository.get_by_id(branch_id) is None:
+            raise EntityNotFoundError("Branch", branch_id)
+
+    async def create(
+        self, username: str, password: str, role: UserRole, branch_id: int | None
+    ) -> User:
+        await self._validate_role_branch(role, branch_id)
+        user = User(
+            username=username,
+            password_hash=hash_password(password),
+            role=role,
+            branch_id=branch_id,
+        )
+        try:
+            return await self._repository.create(user)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(f"Ya existe un usuario con nombre {username}") from exc
+
+    async def update(
+        self,
+        user_id: int,
+        username: str,
+        role: UserRole,
+        branch_id: int | None,
+        password: str | None = None,
+    ) -> User:
+        existing = await self.get_by_id(user_id)
+        await self._validate_role_branch(role, branch_id)
+        password_hash = hash_password(password) if password else existing.password_hash
+        user = User(
+            id=user_id,
+            username=username,
+            password_hash=password_hash,
+            role=role,
+            branch_id=branch_id,
+        )
+        try:
+            return await self._repository.update(user)
+        except IntegrityError as exc:
+            raise BusinessRuleViolationError(f"Ya existe un usuario con nombre {username}") from exc
+
+    async def delete(self, user_id: int) -> None:
+        await self.get_by_id(user_id)
+        await self._repository.delete(user_id)
+
+    async def authenticate(self, username: str, password: str) -> User:
+        user = await self._repository.get_by_username(username)
+        if user is None or not verify_password(password, user.password_hash):
+            raise BusinessRuleViolationError("Usuario o contraseña incorrectos")
+        return user
+
+
+def get_user_service(session: AsyncSession = Depends(get_db)) -> UserService:
+    return UserService(SqlAlchemyUserRepository(session), SqlAlchemyBranchRepository(session))
