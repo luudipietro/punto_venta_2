@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.core.auth import get_current_user
+from app.routes.audit_log_route import router as audit_log_router
 from app.routes.auth_route import router as auth_router
 from app.routes.branch_route import router as branch_router
 from app.routes.brand_route import router as brand_router
@@ -14,6 +15,7 @@ from app.routes.payment_method_route import router as payment_method_router
 from app.routes.product_route import router as product_router
 from app.routes.promotion_route import router as promotion_router
 from app.routes.purchase_route import router as purchase_router
+from app.routes.report_route import router as report_router
 from app.routes.sale_route import router as sale_router
 from app.routes.size_route import router as size_router
 from app.routes.stock_route import router as stock_router
@@ -55,3 +57,8 @@ api_router.include_router(sale_router, dependencies=_auth_required)
 api_router.include_router(exchange_router, dependencies=_auth_required)
 api_router.include_router(expense_router, dependencies=_auth_required)
 api_router.include_router(upload_router, dependencies=_auth_required)
+
+# Admin-only in their entirety (router-level `Depends(require_admin)` set in
+# their own files) — traceability and financial analytics.
+api_router.include_router(audit_log_router)
+api_router.include_router(report_router)

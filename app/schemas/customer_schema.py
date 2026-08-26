@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict
 class CustomerBase(BaseModel):
     dni: str
     name: str
+    email: str | None = None
+    phone: str | None = None
 
 
 class CustomerCreate(CustomerBase):

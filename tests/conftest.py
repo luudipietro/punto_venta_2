@@ -17,6 +17,7 @@ from app.infrastructure.db.base import Base
 
 # Imported for their side effect of registering tables on Base.metadata.
 from app.infrastructure.db.models import (  # noqa: F401
+    audit_log_model,
     branch_model,
     brand_model,
     brand_settings_model,

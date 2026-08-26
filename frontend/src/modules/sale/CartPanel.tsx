@@ -49,6 +49,16 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtotal])
 
+  // The confirmed-sale flow clears the cart (cartStore.clear() resets
+  // `discount` to 0), but this component's own display state for the input
+  // wasn't wired to that — it kept showing the old number after checkout.
+  useEffect(() => {
+    if (lines.length === 0) {
+      setDiscountRawValue(0)
+      setDiscountMode('amount')
+    }
+  }, [lines.length])
+
   function handleDiscountModeChange(mode: DiscountMode) {
     if (mode === discountMode) return
     if (mode === 'percent') {
@@ -72,23 +82,29 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
       ) : (
         <div className="flex flex-col gap-2">
           {lines.map((line) => (
-            <div key={line.stockId} className="flex items-center gap-2 rounded-md border p-2">
-              {line.imageUrl ? (
-                <img
-                  src={line.imageUrl}
-                  alt=""
-                  className="size-8 shrink-0 rounded-md border object-cover"
-                  onError={(event) => {
-                    event.currentTarget.style.visibility = 'hidden'
-                  }}
-                />
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{line.productName}</p>
-                {line.variantLabel && (
-                  <p className="text-xs text-muted-foreground">{line.variantLabel}</p>
-                )}
+            <div
+              key={line.stockId}
+              className="flex flex-wrap items-center gap-2 rounded-md border p-2.5"
+            >
+              <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+                {line.imageUrl ? (
+                  <img
+                    src={line.imageUrl}
+                    alt=""
+                    className="size-10 shrink-0 rounded-md border object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden'
+                    }}
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{line.productName}</p>
+                  {line.variantLabel && (
+                    <p className="text-xs text-muted-foreground">{line.variantLabel}</p>
+                  )}
+                </div>
               </div>
+              <div className="flex flex-1 items-center justify-between gap-2 sm:flex-none sm:justify-end">
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
@@ -120,6 +136,7 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
               >
                 <Trash2 className="size-3.5" />
               </Button>
+              </div>
             </div>
           ))}
         </div>

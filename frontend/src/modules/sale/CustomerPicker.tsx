@@ -19,6 +19,8 @@ export function CustomerPicker({ customerId, onChange }: CustomerPickerProps) {
   const [showCreate, setShowCreate] = useState(false)
   const [newDni, setNewDni] = useState('')
   const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [newPhone, setNewPhone] = useState('')
 
   const { data: selected } = useCustomer(customerId ?? undefined)
   const { data: results, isFetching } = useSearchCustomers(search)
@@ -26,12 +28,19 @@ export function CustomerPicker({ customerId, onChange }: CustomerPickerProps) {
 
   async function handleCreate() {
     try {
-      const customer = await createMutation.mutateAsync({ dni: newDni, name: newName })
+      const customer = await createMutation.mutateAsync({
+        dni: newDni,
+        name: newName,
+        email: newEmail || null,
+        phone: newPhone || null,
+      })
       onChange(customer.id)
       setSearch('')
       setShowCreate(false)
       setNewDni('')
       setNewName('')
+      setNewEmail('')
+      setNewPhone('')
       toast.success('Cliente creado')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo crear el cliente')
@@ -82,23 +91,26 @@ export function CustomerPicker({ customerId, onChange }: CustomerPickerProps) {
               </button>
             ))
           ) : (
-            <div className="flex items-center justify-between px-2 py-1">
-              <span className="text-xs text-muted-foreground">Sin resultados.</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 gap-1 text-xs"
-                onClick={() => {
-                  setNewDni(/^\d+$/.test(search.trim()) ? search.trim() : '')
-                  setNewName(/^\d+$/.test(search.trim()) ? '' : search.trim())
-                  setShowCreate(true)
-                }}
-              >
-                <Plus className="size-3" />
-                Crear cliente
-              </Button>
-            </div>
+            <p className="px-2 py-1 text-xs text-muted-foreground">Sin resultados.</p>
           )}
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-xs text-muted-foreground">
+              {results && results.length > 0 ? '¿No es ninguno de estos?' : ''}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 text-xs"
+              onClick={() => {
+                setNewDni(/^\d+$/.test(search.trim()) ? search.trim() : '')
+                setNewName(/^\d+$/.test(search.trim()) ? '' : search.trim())
+                setShowCreate(true)
+              }}
+            >
+              <Plus className="size-3" />
+              Crear cliente
+            </Button>
+          </div>
         </div>
       )}
 
@@ -113,6 +125,16 @@ export function CustomerPicker({ customerId, onChange }: CustomerPickerProps) {
             placeholder="Nombre"
             value={newName}
             onChange={(event) => setNewName(event.target.value)}
+          />
+          <Input
+            placeholder="Correo (opcional)"
+            value={newEmail}
+            onChange={(event) => setNewEmail(event.target.value)}
+          />
+          <Input
+            placeholder="Teléfono (opcional)"
+            value={newPhone}
+            onChange={(event) => setNewPhone(event.target.value)}
           />
           <Button
             size="sm"

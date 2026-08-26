@@ -344,7 +344,7 @@ export function PromotionsPage() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <Select
                           value={item.discount_type}
                           disabled={targetPriceMode}

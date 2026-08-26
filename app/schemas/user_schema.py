@@ -15,6 +15,7 @@ class UserCreate(UserBase):
 
 class UserUpdate(UserBase):
     password: str | None = None
+    current_password: str | None = None
 
 
 class UserRead(UserBase):

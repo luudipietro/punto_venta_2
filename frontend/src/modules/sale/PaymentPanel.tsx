@@ -71,12 +71,12 @@ export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
         const remainingExcludingThisLine =
           Math.round((total - netCoveredByOtherLines(line.key, payments, paymentMethods)) * 100) / 100
         return (
-          <div key={line.key} className="flex items-center gap-2">
+          <div key={line.key} className="flex flex-wrap items-center gap-2 rounded-md border p-2">
             <Select
               value={line.paymentMethodId ? String(line.paymentMethodId) : undefined}
               onValueChange={(value) => updateLine(line.key, { paymentMethodId: Number(value) })}
             >
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-36 sm:w-40">
                 <SelectValue placeholder="Método" />
               </SelectTrigger>
               <SelectContent>
@@ -94,26 +94,33 @@ export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
               placeholder="Monto cobrado"
               value={line.amount || ''}
               onChange={(event) => updateLine(line.key, { amount: Number(event.target.value) || 0 })}
-              className="flex-1"
+              className="min-w-[110px] flex-1"
             />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              title="Completar restante"
-              disabled={remainingExcludingThisLine <= 0}
-              onClick={() => fillRemaining(line)}
-            >
-              <Wand2 className="size-3.5" />
-            </Button>
-            {method && method.surcharge_percentage > 0 && (
-              <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
-                cubre {formatCurrency(netAmountFor(line, paymentMethods))}
-              </span>
-            )}
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => removeLine(line.key)}>
-              <Trash2 className="size-3.5" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                title="Completar restante"
+                disabled={remainingExcludingThisLine <= 0}
+                onClick={() => fillRemaining(line)}
+              >
+                <Wand2 className="size-3.5" />
+              </Button>
+              {method && method.surcharge_percentage > 0 && (
+                <span className="shrink-0 text-right text-xs text-muted-foreground">
+                  cubre {formatCurrency(netAmountFor(line, paymentMethods))}
+                </span>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => removeLine(line.key)}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
           </div>
         )
       })}

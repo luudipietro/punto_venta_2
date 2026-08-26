@@ -13,6 +13,7 @@ from app.domain.exchange import Exchange
 from app.domain.exchange_new_item import ExchangeNewItem
 from app.domain.exchange_payment import ExchangePayment
 from app.domain.exchange_return_item import ExchangeReturnItem
+from app.domain.user import User
 from app.infrastructure.db.session import get_db
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
@@ -38,6 +39,7 @@ from app.repositories.sale_item_repository import SaleItemRepository, SqlAlchemy
 from app.repositories.sale_repository import SaleRepository, SqlAlchemySaleRepository
 from app.repositories.size_repository import SqlAlchemySizeRepository
 from app.repositories.stock_repository import SqlAlchemyStockRepository
+from app.services.audit_log_service import AuditLogService, get_audit_log_service
 from app.services.stock_service import StockService
 
 
@@ -59,6 +61,7 @@ class ExchangeService:
         sale_repository: SaleRepository,
         sale_item_repository: SaleItemRepository,
         payment_method_repository: PaymentMethodRepository,
+        audit: AuditLogService | None = None,
     ) -> None:
         self._exchange_repository = exchange_repository
         self._exchange_return_item_repository = exchange_return_item_repository
@@ -68,6 +71,7 @@ class ExchangeService:
         self._sale_repository = sale_repository
         self._sale_item_repository = sale_item_repository
         self._payment_method_repository = payment_method_repository
+        self._audit = audit
 
     async def list_all(self) -> list[Exchange]:
         return await self._exchange_repository.list_all()
@@ -96,6 +100,7 @@ class ExchangeService:
         waive_refund: bool = False,
         *,
         acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Exchange:
         sale = await self._sale_repository.get_by_id(sale_id)
         if sale is None:
@@ -182,10 +187,24 @@ class ExchangeService:
             created_payment = await self._exchange_payment_repository.create(payment)
             payment.id = created_payment.id
 
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "exchange.create",
+                "Exchange",
+                exchange.id,
+                branch_id=exchange.branch_id,
+                summary=f"Registró el cambio #{exchange.id} sobre la venta #{sale_id}",
+            )
+
         return exchange
 
     async def cancel_exchange(
-        self, exchange_id: int, *, acting_branch_id: int | None = None
+        self,
+        exchange_id: int,
+        *,
+        acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Exchange:
         """Reverses one exchange's stock effect: destocks what it had
         restocked (the returned items) and restocks what it had destocked
@@ -217,12 +236,25 @@ class ExchangeService:
         for new_item in await self._exchange_new_item_repository.list_by_exchange(exchange_id):
             await self._stock_service.increase_quantity(new_item.stock_id, new_item.quantity)
 
-        return await self._exchange_repository.mark_cancelled(
+        cancelled = await self._exchange_repository.mark_cancelled(
             exchange_id, datetime.now(UTC).replace(tzinfo=None)
         )
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "exchange.cancel",
+                "Exchange",
+                exchange_id,
+                branch_id=exchange.branch_id,
+                summary=f"Canceló el cambio #{exchange_id}",
+            )
+        return cancelled
 
 
-def get_exchange_service(session: AsyncSession = Depends(get_db)) -> ExchangeService:
+def get_exchange_service(
+    session: AsyncSession = Depends(get_db),
+    audit: AuditLogService = Depends(get_audit_log_service),
+) -> ExchangeService:
     return ExchangeService(
         SqlAlchemyExchangeRepository(session),
         SqlAlchemyExchangeReturnItemRepository(session),
@@ -238,4 +270,5 @@ def get_exchange_service(session: AsyncSession = Depends(get_db)) -> ExchangeSer
         SqlAlchemySaleRepository(session),
         SqlAlchemySaleItemRepository(session),
         SqlAlchemyPaymentMethodRepository(session),
+        audit,
     )

@@ -51,3 +51,33 @@ async def test_update_and_delete_customer(client: AsyncClient) -> None:
     delete_resp = await client.delete(f"/customers/{customer_id}")
     assert delete_resp.status_code == 204
     assert (await client.get(f"/customers/{customer_id}")).status_code == 404
+
+
+async def test_cannot_change_dni_after_creation(client: AsyncClient) -> None:
+    create_resp = await client.post("/customers", json={"dni": "60444555", "name": "Alguien"})
+    customer_id = create_resp.json()["id"]
+
+    resp = await client.put(
+        f"/customers/{customer_id}", json={"dni": "60444556", "name": "Alguien"}
+    )
+    assert resp.status_code == 422
+    assert "DNI" in resp.json()["detail"]
+
+    unchanged = await client.get(f"/customers/{customer_id}")
+    assert unchanged.json()["dni"] == "60444555"
+
+
+async def test_create_customer_with_email_and_phone(client: AsyncClient) -> None:
+    resp = await client.post(
+        "/customers",
+        json={
+            "dni": "70555666",
+            "name": "Con Contacto",
+            "email": "cliente@example.com",
+            "phone": "1122334455",
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["email"] == "cliente@example.com"
+    assert body["phone"] == "1122334455"

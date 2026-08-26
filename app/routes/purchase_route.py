@@ -49,6 +49,7 @@ async def create_purchase(
         payment_method_id=payload.payment_method_id,
         payment_date=payload.payment_date,
         acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return _to_detail_read(purchase, items)
 
@@ -65,6 +66,7 @@ async def pay_purchase(
         payload.payment_method_id,
         payload.payment_date,
         acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return PurchaseRead.model_validate(purchase)
 
@@ -76,7 +78,9 @@ async def cancel_purchase(
     current_user: User = Depends(get_current_user),
 ) -> PurchaseRead:
     purchase = await service.cancel_purchase(
-        purchase_id, acting_branch_id=acting_branch_id_of(current_user)
+        purchase_id,
+        acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return PurchaseRead.model_validate(purchase)
 

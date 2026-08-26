@@ -66,6 +66,7 @@ async def create_exchange(
         payments,
         waive_refund=payload.waive_refund,
         acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return _to_detail_read(exchange, returned_items, new_items, payments)
 
@@ -77,7 +78,9 @@ async def cancel_exchange(
     current_user: User = Depends(get_current_user),
 ) -> ExchangeRead:
     exchange = await service.cancel_exchange(
-        exchange_id, acting_branch_id=acting_branch_id_of(current_user)
+        exchange_id,
+        acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return ExchangeRead.model_validate(exchange)
 

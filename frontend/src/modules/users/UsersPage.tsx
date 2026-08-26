@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
 import { useCreateUser, useDeleteUser, useUpdateUser, useUsers } from '@/hooks/useUsers'
+import { useAuthStore } from '@/stores/authStore'
 import type { User } from '@/api/user'
 import type { UserRole } from '@/stores/authStore'
 
@@ -27,6 +28,7 @@ import type { UserRole } from '@/stores/authStore'
 export function UsersPage() {
   const { data: users, isLoading } = useUsers()
   const { data: branches } = useBranches()
+  const authUser = useAuthStore((s) => s.user)
   const createMutation = useCreateUser()
   const updateMutation = useUpdateUser()
   const removeMutation = useDeleteUser()
@@ -35,13 +37,18 @@ export function UsersPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
   const [role, setRole] = useState<UserRole>('empleado')
   const [branchId, setBranchId] = useState<number | null>(null)
+
+  const isEditingSelf = editingId !== null && editingId === authUser?.id
+  const changingOwnPassword = isEditingSelf && password.trim() !== ''
 
   function openCreateDialog() {
     setEditingId(null)
     setUsername('')
     setPassword('')
+    setCurrentPassword('')
     setRole('empleado')
     setBranchId(null)
     setOpen(true)
@@ -51,6 +58,7 @@ export function UsersPage() {
     setEditingId(user.id)
     setUsername(user.username)
     setPassword('')
+    setCurrentPassword('')
     setRole(user.role)
     setBranchId(user.branch_id)
     setOpen(true)
@@ -59,7 +67,8 @@ export function UsersPage() {
   const canSubmit =
     username.trim() !== '' &&
     (editingId !== null || password.trim() !== '') &&
-    (role === 'admin' || branchId !== null)
+    (role === 'admin' || branchId !== null) &&
+    (!changingOwnPassword || currentPassword.trim() !== '')
 
   async function handleSubmit() {
     const payload = {
@@ -67,6 +76,7 @@ export function UsersPage() {
       role,
       branch_id: role === 'empleado' ? branchId : null,
       ...(password.trim() !== '' ? { password } : {}),
+      ...(changingOwnPassword ? { current_password: currentPassword } : {}),
     }
     try {
       if (editingId === null) {
@@ -125,6 +135,20 @@ export function UsersPage() {
                     onChange={(event) => setPassword(event.target.value)}
                   />
                 </div>
+                {changingOwnPassword && (
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="user-current-password">Contraseña actual</Label>
+                    <Input
+                      id="user-current-password"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Necesaria para confirmar que sos vos quien cambia tu propia contraseña.
+                    </p>
+                  </div>
+                )}
                 <div className="grid gap-1.5">
                   <Label>Rol</Label>
                   <Select value={role} onValueChange={(value) => setRole(value as UserRole)}>

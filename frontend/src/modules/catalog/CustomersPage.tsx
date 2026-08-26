@@ -12,10 +12,12 @@ export function CustomersPage() {
     <SimpleCatalogPage<Customer, CustomerInput>
       title="Clientes"
       fields={[
-        { name: 'dni', label: 'DNI' },
+        { name: 'dni', label: 'DNI', disabledOnEdit: true },
         { name: 'name', label: 'Nombre' },
+        { name: 'email', label: 'Correo', optional: true },
+        { name: 'phone', label: 'Teléfono', optional: true },
       ]}
-      emptyInput={{ dni: '', name: '' }}
+      emptyInput={{ dni: '', name: '', email: '', phone: '' }}
       useList={useCustomers}
       useCreate={useCreateCustomer}
       useUpdate={useUpdateCustomer}

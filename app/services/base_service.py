@@ -1,6 +1,10 @@
-from typing import Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
 
 from app.core.exceptions import EntityNotFoundError
+
+if TYPE_CHECKING:
+    from app.domain.user import User
+    from app.services.audit_log_service import AuditLogService
 
 DomainT = TypeVar("DomainT")
 
@@ -24,8 +28,13 @@ class CrudService(Generic[DomainT]):
 
     entity_name: str
 
-    def __init__(self, repository: CrudRepositoryProtocol[DomainT]) -> None:
+    def __init__(
+        self,
+        repository: CrudRepositoryProtocol[DomainT],
+        audit: "AuditLogService | None" = None,
+    ) -> None:
         self._repository = repository
+        self._audit = audit
 
     async def list_all(self) -> list[DomainT]:
         return await self._repository.list_all()
@@ -36,14 +45,35 @@ class CrudService(Generic[DomainT]):
             raise EntityNotFoundError(self.entity_name, entity_id)
         return entity
 
-    async def create(self, entity: DomainT) -> DomainT:
-        return await self._repository.create(entity)
+    async def _record(
+        self, acting_user: "User | None", verb: str, entity: DomainT, entity_id: int
+    ) -> None:
+        if self._audit is None:
+            return
+        label = getattr(entity, "name", None) or f"#{entity_id}"
+        await self._audit.record(
+            acting_user,
+            f"{self.entity_name.lower()}.{verb}",
+            self.entity_name,
+            entity_id,
+            summary=f"{verb.capitalize()} {self.entity_name.lower()} {label}",
+        )
 
-    async def update(self, entity_id: int, entity: DomainT) -> DomainT:
+    async def create(self, entity: DomainT, *, acting_user: "User | None" = None) -> DomainT:
+        created = await self._repository.create(entity)
+        await self._record(acting_user, "create", created, created.id)  # type: ignore[attr-defined]
+        return created
+
+    async def update(
+        self, entity_id: int, entity: DomainT, *, acting_user: "User | None" = None
+    ) -> DomainT:
         await self.get_by_id(entity_id)
         entity.id = entity_id  # type: ignore[attr-defined]
-        return await self._repository.update(entity)
+        updated = await self._repository.update(entity)
+        await self._record(acting_user, "update", updated, entity_id)
+        return updated
 
-    async def delete(self, entity_id: int) -> None:
-        await self.get_by_id(entity_id)
+    async def delete(self, entity_id: int, *, acting_user: "User | None" = None) -> None:
+        entity = await self.get_by_id(entity_id)
         await self._repository.delete(entity_id)
+        await self._record(acting_user, "delete", entity, entity_id)

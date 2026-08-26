@@ -12,6 +12,7 @@ from app.core.exceptions import (
 from app.domain.sale import Sale
 from app.domain.sale_item import SaleItem
 from app.domain.sale_payment import SalePayment
+from app.domain.user import User
 from app.infrastructure.db.session import get_db
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.category_repository import SqlAlchemyCategoryRepository
@@ -40,6 +41,7 @@ from app.repositories.sale_payment_repository import (
 from app.repositories.sale_repository import SaleRepository, SqlAlchemySaleRepository
 from app.repositories.size_repository import SqlAlchemySizeRepository
 from app.repositories.stock_repository import SqlAlchemyStockRepository
+from app.services.audit_log_service import AuditLogService, get_audit_log_service
 from app.services.promotion_service import PromotionService
 from app.services.stock_service import StockService
 
@@ -62,6 +64,7 @@ class SaleService:
         customer_repository: CustomerRepository,
         exchange_return_item_repository: ExchangeReturnItemRepository,
         exchange_new_item_repository: ExchangeNewItemRepository,
+        audit: AuditLogService | None = None,
     ) -> None:
         self._sale_repository = sale_repository
         self._sale_item_repository = sale_item_repository
@@ -73,6 +76,7 @@ class SaleService:
         self._customer_repository = customer_repository
         self._exchange_return_item_repository = exchange_return_item_repository
         self._exchange_new_item_repository = exchange_new_item_repository
+        self._audit = audit
 
     async def list_all(self) -> list[Sale]:
         return await self._sale_repository.list_all()
@@ -192,6 +196,7 @@ class SaleService:
         customer_id: int | None = None,
         *,
         acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Sale:
         if acting_branch_id is not None and branch_id != acting_branch_id:
             raise PermissionDeniedError("No podés registrar ventas para otra sucursal")
@@ -239,9 +244,25 @@ class SaleService:
             created_payment = await self._sale_payment_repository.create(payment)
             payment.id = created_payment.id
 
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "sale.create",
+                "Sale",
+                sale.id,
+                branch_id=sale.branch_id,
+                summary=f"Registró la venta #{sale.id} por ${sale.total}",
+            )
+
         return sale
 
-    async def cancel_sale(self, sale_id: int, *, acting_branch_id: int | None = None) -> Sale:
+    async def cancel_sale(
+        self,
+        sale_id: int,
+        *,
+        acting_branch_id: int | None = None,
+        acting_user: User | None = None,
+    ) -> Sale:
         """Cancels a sale in place of editing it: restores stock, then marks
         the sale cancelled. A cancelled sale stays visible in history for the
         record, but no longer counts toward cash balances (see ReportService)
@@ -278,12 +299,25 @@ class SaleService:
             elif quantity < 0:
                 await self._stock_service.decrease_quantity(stock_id, -quantity)
 
-        return await self._sale_repository.mark_cancelled(
+        cancelled = await self._sale_repository.mark_cancelled(
             sale_id, datetime.now(UTC).replace(tzinfo=None)
         )
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "sale.cancel",
+                "Sale",
+                sale_id,
+                branch_id=sale.branch_id,
+                summary=f"Canceló la venta #{sale_id}",
+            )
+        return cancelled
 
 
-def get_sale_service(session: AsyncSession = Depends(get_db)) -> SaleService:
+def get_sale_service(
+    session: AsyncSession = Depends(get_db),
+    audit: AuditLogService = Depends(get_audit_log_service),
+) -> SaleService:
     return SaleService(
         SqlAlchemySaleRepository(session),
         SqlAlchemySaleItemRepository(session),
@@ -306,4 +340,5 @@ def get_sale_service(session: AsyncSession = Depends(get_db)) -> SaleService:
         SqlAlchemyCustomerRepository(session),
         SqlAlchemyExchangeReturnItemRepository(session),
         SqlAlchemyExchangeNewItemRepository(session),
+        audit,
     )

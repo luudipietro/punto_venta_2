@@ -199,6 +199,18 @@ works across all branches.
   `client_no_auth`, skips that override for the newer tests that specifically exercise real
   401/403/branch-mismatch behavior (`tests/test_auth_routes.py`, `tests/test_route_authorization.py`,
   `tests/test_branch_authorization.py`).
+- **Changing your own password requires the current one**: `UserService.update` takes optional
+  `current_password`/`acting_user` kwargs — if `password` is being changed **and**
+  `acting_user.id == user_id` (a user editing their own account), it requires `current_password` and
+  verifies it with `verify_password` against the existing hash (`BusinessRuleViolationError`
+  otherwise). Resetting a *different* user's password (an admin acting on someone else) still needs
+  nothing extra — that's a legitimate admin action, not the security hole. This closes a real gap: an
+  unattended/stolen admin session could otherwise be used to silently take over the account by
+  setting a new password with nothing but the browser tab already open. `PUT /users/{id}`
+  (`user_route.py`) now also injects `current_user` (in addition to the router's `require_admin`) so
+  the service can compare "is this self or someone else." Frontend: `UsersPage.tsx` shows an extra
+  "Contraseña actual" field only when `editingId === authUser?.id` and the password field is
+  non-empty.
 
 ## Scope
 
@@ -348,13 +360,26 @@ API. The original domain model is now fully covered.
   quantity to the existing row (`useIncreaseStock`) instead of creating a duplicate — this is a
   client-side courtesy only; the backend's `IntegrityError` → `BusinessRuleViolationError`
   translation in `StockService.create` is still the real enforcement for the non-`NULL` case.
-- **Customer** (`app/domain/customer.py`) is a flat entity — `dni` (unique) + `name` — with full
-  CRUD via the generic `CrudService` pattern, plus `GET /customers?q=` (case-insensitive substring
-  match on `dni` OR `name`, `CustomerRepository.list_all(q)`) backing the checkout search box.
-  `IntegrityError` on a duplicate `dni` is translated to `BusinessRuleViolationError` in
-  `CustomerService.create`/`update`, same pattern as `StockService.create`. A `Sale` optionally
-  carries `customer_id` (nullable FK, validated with `EntityNotFoundError` if set but unknown) —
-  attaching a customer is entirely optional at checkout, never required to confirm a sale.
+- **Customer** (`app/domain/customer.py`) is a flat entity — `dni` (unique), `name`, optional
+  `email`/`phone` — with full CRUD via the generic `CrudService` pattern, plus `GET /customers?q=`
+  (case-insensitive substring match on `dni` OR `name`, `CustomerRepository.list_all(q)`) backing
+  the checkout search box. `IntegrityError` on a duplicate `dni` is translated to
+  `BusinessRuleViolationError` in `CustomerService.create`/`update`, same pattern as
+  `StockService.create`. A `Sale` optionally carries `customer_id` (nullable FK, validated with
+  `EntityNotFoundError` if set but unknown) — attaching a customer is entirely optional at checkout,
+  never required to confirm a sale.
+  - **`dni` is locked after creation** — same "renaming would make history misleading" reasoning as
+    Category/Brand/Color/Size (see below), but enforced differently since `name`/`email`/`phone`
+    still need to stay editable: `CustomerService.update` raises `BusinessRuleViolationError` if
+    `payload.dni != existing.dni`, rather than dropping the field from the schema entirely (`PUT`
+    still accepts a `dni`, the service just rejects a *changed* one). Frontend:
+    `SimpleCatalogPage.tsx`'s `Field<TInput>` gained a `disabledOnEdit?: boolean` flag (render the
+    input `disabled` once `editingId !== null`) — `CustomersPage.tsx` sets it on `dni` only.
+  - `CustomerPicker.tsx`'s checkout search box always shows a "Crear cliente" button next to the
+    result list (not just when there are zero matches) — a real customer can share a name/partial
+    dni with someone new, and the cashier must always be able to fall through to creating a new
+    record instead of being forced to pick an existing one. Its quick-create form also gained
+    optional `email`/`phone` inputs, mirroring the catalog page.
 - **Promotion** (`app/domain/promotion.py` + `app/domain/promotion_item.py`) is a parent/children
   entity, not a flat row: `Promotion` only holds `name`/`start_date`/`end_date`/`active`
   (`end_date: date | None` — a promotion can have no end date, meaning it never expires; the
@@ -579,6 +604,108 @@ Domain names are English translations of the original (Spanish) domain model —
 `Cambio`/`Devolución` -> `Exchange`. There is no separate translation layer; the English names are
 canonical.
 
+## Audit trail (traceability)
+
+`AuditLog` (`app/domain/audit_log.py`, table `audit_logs`) is an append-only entity (`create` +
+filtered `list_all` only, no update/delete — same shape as `Sale`/`Purchase`) recording who did
+what, when, and in which branch. `actor_username` is denormalized onto the row itself (not just
+`actor_user_id`, which has **no FK constraint** on purpose) so history still reads correctly after a
+user is deleted, and so the test fixtures' synthetic, never-persisted `User(id=1, ...)` (see the
+Authentication test-fixture note above) doesn't trip a foreign-key violation on every write.
+
+- `AuditLogService.record(actor, action, entity_type, entity_id, branch_id=..., summary=...)`
+  (`app/services/audit_log_service.py`) is called by other services *after* their own mutation
+  succeeds, sharing the same session (`flush`, not `commit`) so the audit entry is atomic with the
+  operation it documents.
+- **Covered generically via the base class**: `CrudService.create`/`update`/`delete`
+  (`app/services/base_service.py`) accept an optional `audit: AuditLogService | None` (constructor)
+  and `acting_user: User | None` (per-call, keyword-only) — if both are present, they log
+  automatically. Every subclass's overridden `create`/`update`/`delete` just needs to forward
+  `acting_user=acting_user` to `super().xxx(...)`. **Only wired into `CustomerService` and
+  `StockService` so far** (see next point) — the other `CrudService` subclasses (Category, Brand,
+  Color, Size, Branch, PaymentMethod, Product, Promotion, Expense) don't pass an `AuditLogService`
+  into their `get_<entity>_service` factory yet, so no audit rows are recorded for them today. Wiring
+  one in is a small, mechanical, non-breaking change (the plumbing already exists) — do it if asked.
+- **Services with their own mutation logic get an explicit `record(...)` call at the point of
+  success**, each with its own `acting_user: User | None = None` kwarg (same non-breaking,
+  keyword-only shape as `acting_branch_id`): `SaleService.create_sale`/`cancel_sale`,
+  `PurchaseService.create_purchase`/`cancel_purchase`/`mark_paid`,
+  `ExchangeService.create_exchange`/`cancel_exchange`, `UserService.create`/`update`/`delete`.
+  `StockService.increase_quantity`/`decrease_quantity` only logs when `acting_user is not None` —
+  the *manual* adjustment route (`/stocks/{id}/increase`/`/decrease`) passes it, but `SaleService`/
+  `PurchaseService`/`ExchangeService`'s own internal stock adjustments (decrementing/incrementing as
+  a side effect of a sale/purchase/exchange) never do, so a single sale line-item doesn't spam the
+  log with a redundant `stock.decrease` entry alongside its own `sale.create` entry. This closes the
+  "No audit trail for manual stock +/-" limitation that was explicitly deferred until a login/user
+  system existed (see previous Known Limitations revisions).
+- `GET /audit-logs?start_date=&end_date=&branch_id=&action=&actor_user_id=` (`audit_log_route.py`,
+  admin-only via router-level `Depends(require_admin)`) — filters are applied at the SQL level in
+  `AuditLogRepository.list_all` (not in-memory like `ReportService`), since this table can grow
+  faster than the others. Frontend: `AuditLogPage.tsx` (`/catalogo/trazabilidad`, admin-only) —
+  date range + branch + a "solo cancelaciones" filter (client-side, over the already-fetched list) —
+  action codes are translated to Spanish via a local `ACTION_LABELS` map, falling back to the raw
+  code for anything not in it (so adding a new `record(...)` call elsewhere doesn't require touching
+  this map to avoid a broken UI, just to avoid an untranslated label).
+
+## Financial dashboard
+
+`ReportService.financial_summary(start_date, end_date, branch_id=None)` (`app/services/
+report_service.py`, same file/repos as `daily_cash_balance`) generalizes that report from one
+calendar day/one branch to an arbitrary date range and optionally every branch at once
+(`branch_id=None`) — same "compose everything in memory" approach, same justification (acceptable
+at a single POS's data volume). Returns a `FinancialSummary` (`app/domain/financial_summary.py`):
+`sales_total`/`purchases_total`/`expenses_total`/`net_cash_balance` (cash-only, same formula as
+`daily_cash_balance.balance` but summed over the range), a `payment_method_breakdown` list (per
+**actual** `PaymentMethod`, not just cash/not-cash — sales/purchases/expenses/exchanges amounts by
+method, answering "how much in cash, how much on each card"), and a `daily_series` for charting
+(reuses `_to_art_date`). **Deliberately doesn't include raw drill-down rows** — the frontend re-uses
+the existing `GET /sales`/`/purchases`/`/expenses`/`/exchanges` endpoints and filters the
+already-loaded lists client-side by the same date range, the same pattern `SalesHistoryPage.tsx`
+already uses, instead of duplicating that data over the wire.
+
+`GET /reports/financial-summary?start_date=&end_date=&branch_id=` (new `report_route.py`,
+admin-only) — a separate router from `daily-balance` (which stays nested under `/branches/{id}/...`
+since it's always branch-scoped) because this endpoint's `branch_id` is optional.
+
+Frontend: `FinanceDashboardPage.tsx` (`/finanzas`, admin-only) — date range + branch filter, stat
+cards, a payment-method bar chart, a daily line chart, and drill-down tabs (Ventas/Compras/Gastos/
+Cambios) over the client-filtered lists described above. Charts use **`recharts`** (new dependency —
+nothing charted anything before this). Two things worth knowing if you touch this page:
+- **CSS custom properties work directly as recharts `fill`/`stroke` values** (`var(--border)`,
+  `var(--muted-foreground)`, etc.) — the browser resolves them like any other CSS color, so the
+  chart re-themes for free on a light/dark toggle with no JS re-render logic. Verified: the resolved
+  `fill` on an axis-tick `<text>` element changes from the light `--muted-foreground` to the dark
+  one automatically. The one thing CSS vars *can't* fix is recharts' hardcoded white-background
+  Tooltip — that needs an explicit `contentStyle`/`labelStyle`/`itemStyle` (see `chartTooltipStyle`
+  in `FinanceDashboardPage.tsx`) pointing at `var(--popover)`/`var(--popover-foreground)`, or it
+  renders a white box with black text regardless of theme.
+- The actual bar/line **series colors** (as opposed to grid/axis/tooltip chrome) are explicit hex
+  pairs per theme (`CHART_COLORS.light`/`.dark` in the same file, read via `useTheme()`) rather than
+  CSS vars — the theme's own `--chart-1..5` tokens are pure grayscale in both light and dark (never
+  customized beyond the shadcn default), so they'd produce an indistinguishable monochrome chart;
+  hand-picked emerald/rose/amber were used instead, matching the emerald-for-positive-amounts
+  convention already used elsewhere (`CartPanel.tsx`'s promotion-discount line).
+
+## Sale confirmation and PDF receipt
+
+Confirming a sale is now a two-step dialog flow in `SalePage.tsx`, not a single button press:
+"Confirmar venta" opens an `AlertDialog` showing the total and asking to confirm; only *that*
+dialog's "Confirmar" actually calls `createSaleMutation`. On success, a second `AlertDialog` asks
+whether to download a PDF receipt — the receipt's line-item/customer data is snapshotted from the
+cart's `lines`/`preview`/`selectedCustomer` state **before** `clear()` empties the cart, since
+there's no other cheap way to re-fetch "what was just sold" after the store resets.
+
+`frontend/src/lib/receipt.ts` (new **`jspdf`** dependency — chosen for being client-side, no backend
+round-trip and no new Python PDF library, and for staying light: `html2canvas`/`dompurify`, which
+`jspdf` pulls in for its unused `.html()` rendering API, end up in separate lazy-loaded chunks that
+are never fetched since this code only uses `jsPDF`'s plain text/line drawing) builds an **80mm
+thermal-ticket-style** receipt, not an A4 invoice: monospace (`courier`) font, dashed-line
+separators, page height computed from the item count instead of a fixed size, itemized
+product/variant/qty/unit-price/subtotal lines, subtotal/discount/promotion-discount/total, and a
+footer noting "Este comprobante no es una factura" (it's explicitly a proof-of-purchase, not a
+fiscal invoice). `downloadReceiptPdf(input)` triggers the browser's native file-save directly — no
+server involvement, no temp file.
+
 ## Database
 
 PostgreSQL via `asyncpg`, but all access goes through SQLAlchemy — no raw SQL, no engine-specific
@@ -643,6 +770,19 @@ raw `op.execute("INSERT INTO users ...")` for the bootstrap `admin`/`admin123` a
 precomputed bcrypt hash pasted as a literal, since migrations don't import application code) and
 `04537794570f` (new `brand_settings` table, no seed row — `BrandSettingsService.get()` falls back
 to an in-code default when the table is empty instead).
+
+Two more migrations, also applied: `812207fd43b4` (`customers.email`/`phone`, both nullable, no
+backfill) and `3226fb5391c6` (new `audit_logs` table — `actor_user_id` is intentionally a plain
+nullable int with **no FK** to `users.id`, see the Audit trail section above for why; `branch_id`
+does keep a real `ondelete=SET NULL` FK to `branches.id`, since branch rows in this app are never
+soft-deleted the way a synthetic test user can be unpersisted). An earlier draft of this migration
+did add the `actor_user_id` FK, which immediately broke most of the test suite (every test using the
+`client` fixture's fake `User(id=1, ...)` triggered a `BusinessRuleViolationError`-flavored
+`IntegrityError` on the very first audited action, misreported by whichever caller's own broad
+`except IntegrityError` happened to wrap it — e.g. `CustomerService.create` claimed "duplicate DNI"
+for what was actually a foreign-key violation on the audit insert). If a future migration adds
+another FK from a new table to `users.id`, make sure any code path that can fire before a real user
+row exists (tests, seed scripts) either persists that user first or the FK stays nullable/absent.
 
 ## Frontend
 
@@ -746,23 +886,40 @@ Notable frontend-specific decisions, in case they look surprising:
   is an intentional feature (an empleado can look up whether another branch has stock), not
   something that should collapse to "only my branch."
 - **Admin-only nav items are hidden, not just route-guarded**: `Layout.tsx`'s `catalogNav` array
-  (Categorías/Marcas/Colores/Talles/Sucursales/Métodos de pago/Usuarios/Configuración) only renders
-  when `role === 'admin'` — an empleado never sees these links at all, and navigating to one of
-  those URLs directly redirects to `/venta` via the `RequireAdmin` route wrapper
+  (Categorías/Marcas/Colores/Talles/Sucursales/Métodos de pago/Usuarios/Configuración) and a separate
+  `adminNav` array (Finanzas/Trazabilidad — kept apart from `catalogNav` since they aren't catalog
+  CRUD screens) only render when `role === 'admin'` — an empleado never sees these links at all, and
+  navigating to one of those URLs directly redirects to `/venta` via the `RequireAdmin` route wrapper
   (`routes.tsx` nests those routes' `<Route>`s inside `<Route element={<RequireAdmin/>}>`, itself
   inside `<Route element={<RequireAuth/>}>` — both wrappers just render `<Outlet/>` or `<Navigate/>`
   depending on `authStore`). `Clientes` moved out of `catalogNav` into the always-visible
   `primaryNav`, since Customer management stays shared with `empleado` (no admin restriction).
-- **No `/usuarios` self-service** — password changes for any account (including an admin's own) go
-  through `/catalogo/usuarios`'s edit dialog (leave the password field blank to keep the current
-  hash), not a "change my password" flow for the logged-in user themselves. Acceptable for now
-  since the only accounts are created/managed by an admin in the first place; revisit if
-  self-service ever becomes a real ask.
+- **`/usuarios`'s edit dialog is still the only way to change any password**, including an admin's
+  own — there's no separate "change my password" self-service page. What *did* change: editing your
+  **own** row there now requires an extra "Contraseña actual" field when setting a new password (see
+  the Authentication section's self-password-change note) — resetting someone *else's* password
+  still only needs the new one, no extra step.
+- **Mobile/tablet layout**: `Layout.tsx`'s sidebar is `hidden md:flex` (desktop, ≥768px) with a
+  parallel `Sheet`-based drawer (`components/ui/sheet.tsx` — new shadcn-style component, built on
+  the same `radix-ui` `Dialog` primitive `dialog.tsx` already used, just anchored to a side instead
+  of centered) for everything narrower, triggered by a hamburger button that appears in the header
+  below `md`. Both render the same `SidebarContent` so the nav list itself isn't duplicated; the
+  drawer closes itself on link click (`onNavigate` prop) so navigating doesn't leave it open.
+  `PageHeader.tsx`'s title/action row and most per-page filter bars use `flex-wrap` for the same
+  reason. `index.html`'s `<html lang>` was changed from `"en"` to `"es-AR"` — Chromium uses this
+  (not the OS locale) to decide the digit order a native `<input type="date">` displays itself in,
+  so leaving it `"en"` made every date picker in the app (Promotions, Finanzas, Trazabilidad, ...)
+  show mm/dd/yyyy while every *rendered* date elsewhere used `formatDate`'s dd/mm/yyyy — a real,
+  reported inconsistency fixed by this one attribute rather than by touching each date input.
 - **Discount % vs $**: the backend only ever accepts an absolute `discount` amount — there is no
   percentage concept in the API. `CartPanel.tsx` keeps a `%`/`$` toggle and a raw input as
   *local UI state*, and converts to an absolute amount (recomputed against the live subtotal,
   including when the cart itself changes) before it ever reaches `cartStore.discount` or gets sent
-  to `/sales/preview`/`/sales`.
+  to `/sales/preview`/`/sales`. That local `discountRawValue`/`discountMode` state is **not**
+  automatically reset by `cartStore.clear()` (which does reset `discount` itself) — a real bug found
+  in manual testing where the discount input kept showing the old number after confirming a sale
+  even though the underlying discount was already back to 0. Fixed with a `useEffect` in
+  `CartPanel.tsx` that resets both to their defaults whenever `lines.length === 0`.
 - **Cart images/colors**: `useSaleCatalog.ts` and `useStockOptions.ts` both join `Stock` with
   `Product`/`Color`/`Size` client-side (no dedicated "stock with details" backend endpoint) to
   resolve `image_url`, `hex_code`, and (on `useStockOptions.ts` — added for `ExchangeForm.tsx`'s
@@ -814,26 +971,29 @@ Raised during manual Postman/pgAdmin testing of the flows above; deliberately de
 - **No pessimistic locking on stock**: concurrent sales decrementing the same `Stock` row rely on
   the DB transaction alone; there's no explicit `SELECT ... FOR UPDATE` or optimistic version column,
   so a race between two simultaneous sales against the same low-stock row is possible in principle.
-- **No audit trail for manual stock +/-**: `StockPage.tsx` asks for confirmation before applying a
-  manual increase/decrease (to avoid stray clicks), but nothing records who/when/why on the
-  backend — `StockService.increase_quantity`/`decrease_quantity` just mutate `quantity`. Explicitly
-  re-confirmed as deferred (the user chose "esperar al sistema de login" over adding an anonymous
-  audit log) — revisit once there's a login/user system to attribute the change to.
+- **Audit trail doesn't cover every entity**: the "Audit trail (traceability)" section above covers
+  Sale/Purchase/Exchange/manual Stock adjustments/User/Customer — Category, Brand, Color, Size,
+  Branch, PaymentMethod, Product, and Promotion don't record audit entries yet, even though
+  `CrudService`'s generic hook would make wiring them in a small, mechanical change (just pass an
+  `AuditLogService` into their `get_<entity>_service` factory and forward `acting_user` from the
+  route). Not done because these are low-frequency admin catalog edits, not the "who touched money"
+  concern that prompted the feature — revisit if asked.
 - **Stock-duplicate merge is a frontend-only courtesy**: `StockPage.tsx` checks the already-loaded
   `useStocks()` list before submitting "Nuevo" and offers to merge quantities into an existing
   matching row — but nothing stops a second browser tab, or a direct `POST /stocks`, from racing
   past that check. The `uq_stock_variant` `IntegrityError` → `BusinessRuleViolationError` in
   `StockService.create` is the real backend enforcement, and it still doesn't cover the `color_id`/
   `size_id` both-`NULL` case (see Stock above) — a race there would silently create a second row.
-- **No responsive/mobile layout yet**: the sidebar-based `Layout` component assumes a desktop-width
-  viewport; there's no hamburger/drawer navigation for tablets or phones. Explicitly deferred
-  alongside the login/roles work (now implemented — see **Authentication and authorization**
-  above), since a real redesign (not just CSS tweaks) is warranted now that the nav structure is
-  settled (admin-only `catalogNav` vs always-visible `primaryNav`).
-- **No self-service password change / no "forgot password" flow**: only an admin can change any
-  account's password (including their own), via `/catalogo/usuarios`'s edit dialog. The seeded
-  bootstrap account (`admin`/`admin123`) should be changed immediately after first login in any real
-  deployment — nothing in the app forces or reminds an admin to do this.
+- **No "forgot password" flow**: there's still no self-service reset for a locked-out user (only an
+  admin can set anyone's password, via `/catalogo/usuarios`). The seeded bootstrap account
+  (`admin`/`admin123`) should be changed immediately after first login in any real deployment —
+  nothing in the app forces or reminds an admin to do this (changing it now does at least require
+  knowing the current `admin123`, per the self-password-change fix above).
+- **Finance dashboard and audit log both re-fetch full unfiltered lists client-side for drill-down**
+  (`FinanceDashboardPage.tsx` calls the same `useSales`/`usePurchases`/`useExpenses`/`useExchanges`
+  hooks as their list pages, then filters by date range in the browser) — fine at a single POS's
+  data volume (same reasoning `SalesHistoryPage.tsx` already relies on), but would need real
+  server-side pagination/filtering if the transaction volume ever grows enough to matter.
 - **JWTs can't be revoked before they expire** (12h, `Settings.access_token_expire_minutes`):
   deleting or editing a `User` takes effect on their *next* request (since `get_current_user`
   re-fetches the row every time), but a token already issued keeps decoding successfully — and thus

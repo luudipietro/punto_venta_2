@@ -82,3 +82,63 @@ async def test_update_user_without_password_keeps_existing_hash(db_session: Asyn
 
     assert updated.password_hash == created.password_hash
     assert await service.authenticate("empleado1", "pass1234")
+
+
+async def test_self_password_change_requires_current_password(db_session: AsyncSession) -> None:
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    service = _build_user_service(db_session)
+    created = await service.create("empleado1", "pass1234", UserRole.EMPLEADO, branch.id)
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.update(
+            created.id,
+            "empleado1",
+            UserRole.EMPLEADO,
+            branch.id,
+            password="newpass1234",
+            acting_user=created,
+        )
+
+    with pytest.raises(BusinessRuleViolationError):
+        await service.update(
+            created.id,
+            "empleado1",
+            UserRole.EMPLEADO,
+            branch.id,
+            password="newpass1234",
+            current_password="wrong-current",
+            acting_user=created,
+        )
+
+    # correct current password succeeds
+    updated = await service.update(
+        created.id,
+        "empleado1",
+        UserRole.EMPLEADO,
+        branch.id,
+        password="newpass1234",
+        current_password="pass1234",
+        acting_user=created,
+    )
+    assert await service.authenticate("empleado1", "newpass1234")
+    assert updated.id == created.id
+
+
+async def test_admin_can_reset_another_users_password_without_current_password(
+    db_session: AsyncSession,
+) -> None:
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    service = _build_user_service(db_session)
+    target = await service.create("empleado1", "pass1234", UserRole.EMPLEADO, branch.id)
+    admin = await service.create("admin1", "adminpass", UserRole.ADMIN, None)
+
+    await service.update(
+        target.id,
+        "empleado1",
+        UserRole.EMPLEADO,
+        branch.id,
+        password="resetbyadmin",
+        acting_user=admin,
+    )
+
+    assert await service.authenticate("empleado1", "resetbyadmin")

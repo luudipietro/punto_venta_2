@@ -13,6 +13,7 @@ export interface UserInput {
   role: UserRole
   branch_id: number | null
   password?: string
+  current_password?: string
 }
 
 export const userApi = createCrudApi<User, UserInput>('users')

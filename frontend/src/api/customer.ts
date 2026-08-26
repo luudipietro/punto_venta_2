@@ -5,11 +5,15 @@ export interface Customer {
   id: number
   dni: string
   name: string
+  email: string | null
+  phone: string | null
 }
 
 export interface CustomerInput {
   dni: string
   name: string
+  email?: string | null
+  phone?: string | null
 }
 
 export const customerApi = {

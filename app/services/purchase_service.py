@@ -11,6 +11,7 @@ from app.core.exceptions import (
 )
 from app.domain.purchase import Purchase
 from app.domain.purchase_item import PurchaseItem
+from app.domain.user import User
 from app.infrastructure.db.session import get_db
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
 from app.repositories.color_repository import SqlAlchemyColorRepository
@@ -26,6 +27,7 @@ from app.repositories.purchase_item_repository import (
 from app.repositories.purchase_repository import PurchaseRepository, SqlAlchemyPurchaseRepository
 from app.repositories.size_repository import SqlAlchemySizeRepository
 from app.repositories.stock_repository import SqlAlchemyStockRepository
+from app.services.audit_log_service import AuditLogService, get_audit_log_service
 from app.services.stock_service import StockService
 
 
@@ -41,12 +43,14 @@ class PurchaseService:
         stock_service: StockService,
         product_repository: ProductRepository,
         payment_method_repository: PaymentMethodRepository,
+        audit: AuditLogService | None = None,
     ) -> None:
         self._purchase_repository = purchase_repository
         self._purchase_item_repository = purchase_item_repository
         self._stock_service = stock_service
         self._product_repository = product_repository
         self._payment_method_repository = payment_method_repository
+        self._audit = audit
 
     async def list_all(self) -> list[Purchase]:
         return await self._purchase_repository.list_all()
@@ -69,6 +73,7 @@ class PurchaseService:
         payment_date: date | None = None,
         *,
         acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Purchase:
         if acting_branch_id is not None and branch_id != acting_branch_id:
             raise PermissionDeniedError("No podés registrar compras para otra sucursal")
@@ -115,6 +120,16 @@ class PurchaseService:
             product.cost = item.unit_cost
             await self._product_repository.update(product)
 
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "purchase.create",
+                "Purchase",
+                purchase.id,
+                branch_id=purchase.branch_id,
+                summary=f"Registró la compra #{purchase.id} por ${purchase.total}",
+            )
+
         return purchase
 
     async def mark_paid(
@@ -124,6 +139,7 @@ class PurchaseService:
         payment_date: date | None = None,
         *,
         acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Purchase:
         purchase = await self.get_by_id(purchase_id)
         if acting_branch_id is not None and purchase.branch_id != acting_branch_id:
@@ -132,12 +148,26 @@ class PurchaseService:
             raise BusinessRuleViolationError(f"La compra {purchase_id} ya está pagada")
         if await self._payment_method_repository.get_by_id(payment_method_id) is None:
             raise EntityNotFoundError("PaymentMethod", payment_method_id)
-        return await self._purchase_repository.mark_paid(
+        updated = await self._purchase_repository.mark_paid(
             purchase_id, payment_method_id, payment_date or date.today()
         )
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "purchase.pay",
+                "Purchase",
+                purchase_id,
+                branch_id=purchase.branch_id,
+                summary=f"Marcó como pagada la compra #{purchase_id}",
+            )
+        return updated
 
     async def cancel_purchase(
-        self, purchase_id: int, *, acting_branch_id: int | None = None
+        self,
+        purchase_id: int,
+        *,
+        acting_branch_id: int | None = None,
+        acting_user: User | None = None,
     ) -> Purchase:
         """Cancels a purchase in place of editing it: reverses the stock each
         PurchaseItem incremented, then marks the purchase cancelled. Doesn't
@@ -153,12 +183,25 @@ class PurchaseService:
         for item in items:
             await self._stock_service.decrease_quantity(item.stock_id, item.quantity)
 
-        return await self._purchase_repository.mark_cancelled(
+        cancelled = await self._purchase_repository.mark_cancelled(
             purchase_id, datetime.now(UTC).replace(tzinfo=None)
         )
+        if self._audit is not None:
+            await self._audit.record(
+                acting_user,
+                "purchase.cancel",
+                "Purchase",
+                purchase_id,
+                branch_id=purchase.branch_id,
+                summary=f"Canceló la compra #{purchase_id}",
+            )
+        return cancelled
 
 
-def get_purchase_service(session: AsyncSession = Depends(get_db)) -> PurchaseService:
+def get_purchase_service(
+    session: AsyncSession = Depends(get_db),
+    audit: AuditLogService = Depends(get_audit_log_service),
+) -> PurchaseService:
     return PurchaseService(
         SqlAlchemyPurchaseRepository(session),
         SqlAlchemyPurchaseItemRepository(session),
@@ -171,4 +214,5 @@ def get_purchase_service(session: AsyncSession = Depends(get_db)) -> PurchaseSer
         ),
         SqlAlchemyProductRepository(session),
         SqlAlchemyPaymentMethodRepository(session),
+        audit,
     )

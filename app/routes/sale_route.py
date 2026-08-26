@@ -82,7 +82,9 @@ async def cancel_sale(
     service: SaleService = Depends(get_sale_service),
     current_user: User = Depends(get_current_user),
 ) -> SaleDetailRead:
-    sale = await service.cancel_sale(sale_id, acting_branch_id=acting_branch_id_of(current_user))
+    sale = await service.cancel_sale(
+        sale_id, acting_branch_id=acting_branch_id_of(current_user), acting_user=current_user
+    )
     items = await service.get_items(sale_id)
     payments = await service.get_payments(sale_id)
     return _to_detail_read(sale, items, payments)
@@ -114,6 +116,7 @@ async def create_sale(
         discount_reason=payload.discount_reason,
         customer_id=payload.customer_id,
         acting_branch_id=acting_branch_id_of(current_user),
+        acting_user=current_user,
     )
     return _to_detail_read(sale, items, payments)
 

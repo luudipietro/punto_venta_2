@@ -21,6 +21,12 @@ interface Field<TInput> {
   label: string
   type?: 'text' | 'number' | 'checkbox'
   optional?: boolean
+  /** Locks this field to its create-time value — rendered disabled once
+   * editing an existing row. Used for fields like Customer.dni where
+   * changing it after other records reference the row would make history
+   * misleading (same reasoning as Category/Brand/Color/Size being
+   * create/delete-only, see CLAUDE.md). */
+  disabledOnEdit?: boolean
 }
 
 interface WithId {
@@ -138,6 +144,7 @@ export function SimpleCatalogPage<TRead extends WithId, TInput extends object>({
                       <Input
                         id={field.name}
                         type={field.type ?? 'text'}
+                        disabled={editingId !== null && field.disabledOnEdit}
                         value={(form[field.name as keyof TInput] as string | number | undefined) ?? ''}
                         onChange={(event) =>
                           setForm(

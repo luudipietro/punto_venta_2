@@ -19,6 +19,8 @@ import { PaymentMethodsPage } from '@/modules/catalog/PaymentMethodsPage'
 import { CustomersPage } from '@/modules/catalog/CustomersPage'
 import { UsersPage } from '@/modules/users/UsersPage'
 import { BrandSettingsPage } from '@/modules/settings/BrandSettingsPage'
+import { AuditLogPage } from '@/modules/admin/AuditLogPage'
+import { FinanceDashboardPage } from '@/modules/dashboard/FinanceDashboardPage'
 
 export function AppRoutes() {
   return (
@@ -43,6 +45,8 @@ export function AppRoutes() {
             <Route path="/catalogo/sucursales" element={<BranchesPage />} />
             <Route path="/catalogo/metodos-pago" element={<PaymentMethodsPage />} />
             <Route path="/catalogo/usuarios" element={<UsersPage />} />
+            <Route path="/catalogo/trazabilidad" element={<AuditLogPage />} />
+            <Route path="/finanzas" element={<FinanceDashboardPage />} />
             <Route path="/configuracion" element={<BrandSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/venta" replace />} />

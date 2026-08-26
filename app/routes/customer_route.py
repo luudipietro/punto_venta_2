@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Query, status
 
+from app.core.auth import get_current_user
 from app.domain.customer import Customer
+from app.domain.user import User
 from app.schemas.customer_schema import CustomerCreate, CustomerRead, CustomerUpdate
 from app.services.customer_service import CustomerService, get_customer_service
 
@@ -24,9 +26,11 @@ async def get_customer(
 
 @router.post("", response_model=CustomerRead, status_code=status.HTTP_201_CREATED)
 async def create_customer(
-    payload: CustomerCreate, service: CustomerService = Depends(get_customer_service)
+    payload: CustomerCreate,
+    service: CustomerService = Depends(get_customer_service),
+    current_user: User = Depends(get_current_user),
 ) -> Customer:
-    return await service.create(Customer(**payload.model_dump()))
+    return await service.create(Customer(**payload.model_dump()), acting_user=current_user)
 
 
 @router.put("/{customer_id}", response_model=CustomerRead)
@@ -34,12 +38,17 @@ async def update_customer(
     customer_id: int,
     payload: CustomerUpdate,
     service: CustomerService = Depends(get_customer_service),
+    current_user: User = Depends(get_current_user),
 ) -> Customer:
-    return await service.update(customer_id, Customer(**payload.model_dump()))
+    return await service.update(
+        customer_id, Customer(**payload.model_dump()), acting_user=current_user
+    )
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_customer(
-    customer_id: int, service: CustomerService = Depends(get_customer_service)
+    customer_id: int,
+    service: CustomerService = Depends(get_customer_service),
+    current_user: User = Depends(get_current_user),
 ) -> None:
-    await service.delete(customer_id)
+    await service.delete(customer_id, acting_user=current_user)

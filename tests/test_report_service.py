@@ -433,3 +433,104 @@ async def test_daily_cash_balance_groups_late_night_sale_into_correct_art_day(
 
     assert len(balances) == 1
     assert balances[0].date == date(2026, 3, 9)
+
+
+async def test_financial_summary_totals_and_payment_method_breakdown(
+    db_session: AsyncSession,
+) -> None:
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    category = await SqlAlchemyCategoryRepository(db_session).create(Category(name="Ropa"))
+    brand = await SqlAlchemyBrandRepository(db_session).create(Brand(name="Nike"))
+    product = await SqlAlchemyProductRepository(db_session).create(
+        Product(
+            name="Remera",
+            category_id=category.id,
+            brand_id=brand.id,
+            cost=Decimal("10"),
+            price=Decimal("20"),
+        )
+    )
+    stock = await SqlAlchemyStockRepository(db_session).create(
+        Stock(product_id=product.id, branch_id=branch.id, quantity=10, color_id=None, size_id=None)
+    )
+    cash = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Efectivo", is_cash=True)
+    )
+    card = await SqlAlchemyPaymentMethodRepository(db_session).create(
+        PaymentMethod(name="Tarjeta", is_cash=False)
+    )
+
+    sale_service = _build_sale_service(db_session)
+    sale = await sale_service.create_sale(
+        branch_id=branch.id,
+        discount=Decimal("0"),
+        items=[SaleItem(stock_id=stock.id, quantity=1, unit_price=Decimal("20.00"))],
+        payments=[
+            SalePayment(
+                payment_method_id=card.id,
+                amount_without_surcharge=Decimal("20.00"),
+                amount_with_surcharge=Decimal("20.00"),
+            )
+        ],
+    )
+    today = sale.created_at.date()
+
+    purchase_service = _build_purchase_service(db_session)
+    await purchase_service.create_purchase(
+        branch_id=branch.id,
+        supplier_name=None,
+        items=[PurchaseItem(stock_id=stock.id, quantity=1, unit_cost=Decimal("8.00"))],
+        payment_method_id=cash.id,
+        payment_date=today,
+    )
+
+    await SqlAlchemyExpenseRepository(db_session).create(
+        Expense(
+            branch_id=branch.id,
+            payment_method_id=cash.id,
+            amount=Decimal("3.00"),
+            description="Insumos",
+            date=today,
+        )
+    )
+
+    report_service = _build_report_service(db_session)
+    summary = await report_service.financial_summary(today, today, branch.id)
+
+    assert summary.sales_total == Decimal("20.00")
+    assert summary.purchases_total == Decimal("8.00")
+    assert summary.expenses_total == Decimal("3.00")
+    # cash: -8 (purchase) - 3 (expense) = -11; card sale doesn't count as cash.
+    assert summary.net_cash_balance == Decimal("-11.00")
+
+    by_name = {b.name: b for b in summary.payment_method_breakdown}
+    assert by_name["Tarjeta"].sales_amount == Decimal("20.00")
+    assert by_name["Efectivo"].purchases_amount == Decimal("8.00")
+    assert by_name["Efectivo"].expenses_amount == Decimal("3.00")
+
+    assert len(summary.daily_series) == 1
+    assert summary.daily_series[0].date == today
+    assert summary.daily_series[0].sales == Decimal("20.00")
+
+
+async def test_financial_summary_excludes_outside_date_range(db_session: AsyncSession) -> None:
+    branch = await SqlAlchemyBranchRepository(db_session).create(Branch(name="Central"))
+    await SqlAlchemyExpenseRepository(db_session).create(
+        Expense(
+            branch_id=branch.id,
+            payment_method_id=(
+                await SqlAlchemyPaymentMethodRepository(db_session).create(
+                    PaymentMethod(name="Efectivo", is_cash=True)
+                )
+            ).id,
+            amount=Decimal("50.00"),
+            description="Fuera de rango",
+            date=date(2020, 1, 1),
+        )
+    )
+
+    report_service = _build_report_service(db_session)
+    summary = await report_service.financial_summary(date.today(), date.today(), branch.id)
+
+    assert summary.expenses_total == Decimal("0")
+    assert summary.daily_series == []

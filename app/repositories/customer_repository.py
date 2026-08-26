@@ -45,7 +45,9 @@ class SqlAlchemyCustomerRepository(SqlAlchemyRepository[CustomerModel], Customer
         return self._to_domain(model) if model else None
 
     async def create(self, customer: Customer) -> Customer:
-        model = CustomerModel(dni=customer.dni, name=customer.name)
+        model = CustomerModel(
+            dni=customer.dni, name=customer.name, email=customer.email, phone=customer.phone
+        )
         self._session.add(model)
         await self._session.flush()
         return self._to_domain(model)
@@ -54,6 +56,8 @@ class SqlAlchemyCustomerRepository(SqlAlchemyRepository[CustomerModel], Customer
         model = await self._get_model(customer.id)
         model.dni = customer.dni
         model.name = customer.name
+        model.email = customer.email
+        model.phone = customer.phone
         await self._session.flush()
         return self._to_domain(model)
 
@@ -64,4 +68,6 @@ class SqlAlchemyCustomerRepository(SqlAlchemyRepository[CustomerModel], Customer
 
     @staticmethod
     def _to_domain(model: CustomerModel) -> Customer:
-        return Customer(id=model.id, dni=model.dni, name=model.name)
+        return Customer(
+            id=model.id, dni=model.dni, name=model.name, email=model.email, phone=model.phone
+        )

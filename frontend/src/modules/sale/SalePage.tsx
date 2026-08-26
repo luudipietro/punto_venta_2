@@ -3,10 +3,25 @@ import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreateSale, usePreviewSale } from '@/hooks/useSales'
+import { useCustomer } from '@/hooks/useCustomers'
+import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { netAmountFor, summarizePayments } from '@/lib/payment'
+import { formatCurrency } from '@/lib/format'
+import { downloadReceiptPdf, type ReceiptInput } from '@/lib/receipt'
+import { brandConfig } from '@/theme/brand.config'
 import { useAuthStore } from '@/stores/authStore'
 import { useCartStore } from '@/modules/sale/cartStore'
 import { CustomerPicker } from '@/modules/sale/CustomerPicker'
@@ -22,9 +37,14 @@ export function SalePage() {
   const [payments, setPayments] = useState<PaymentLine[]>([])
   const [preview, setPreview] = useState<SalePreviewRead>()
   const [customerId, setCustomerId] = useState<number | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingReceipt, setPendingReceipt] = useState<ReceiptInput | null>(null)
 
   const previewMutation = usePreviewSale()
   const createSaleMutation = useCreateSale()
+  const { data: selectedCustomer } = useCustomer(customerId ?? undefined)
+  const { data: brand } = useBrandSettings()
+  const companyName = brand?.company_name ?? brandConfig.companyName
 
   // The cart's branch always mirrors the topbar's active branch — there's no
   // per-page selector anymore (see BranchSelector.tsx). Switching branch
@@ -76,7 +96,7 @@ export function SalePage() {
   async function handleConfirm() {
     if (branchId === null || !preview) return
     try {
-      await createSaleMutation.mutateAsync({
+      const sale = await createSaleMutation.mutateAsync({
         branch_id: branchId,
         discount,
         discount_reason: discountReason || undefined,
@@ -93,11 +113,29 @@ export function SalePage() {
         customer_id: customerId,
       })
       toast.success('Venta registrada')
+      setPendingReceipt({
+        companyName,
+        saleId: sale.id,
+        createdAt: new Date(),
+        items: lines.map((line) => ({
+          name: line.productName,
+          variant: line.variantLabel,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+        })),
+        subtotal: preview.subtotal,
+        discount: preview.discount,
+        promotionDiscount: preview.promotion_discount,
+        total: preview.total,
+        customerName: selectedCustomer?.name ?? null,
+      })
       clear()
       setPayments([])
       setCustomerId(null)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo registrar la venta')
+    } finally {
+      setConfirmOpen(false)
     }
   }
 
@@ -127,7 +165,7 @@ export function SalePage() {
               <Button
                 size="lg"
                 disabled={!canConfirm || createSaleMutation.isPending}
-                onClick={handleConfirm}
+                onClick={() => setConfirmOpen(true)}
               >
                 Confirmar venta
               </Button>
@@ -135,6 +173,46 @@ export function SalePage() {
           )}
         </Card>
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar venta</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se va a registrar una venta por {formatCurrency(total)}. ¿Confirmás?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction disabled={createSaleMutation.isPending} onClick={handleConfirm}>
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingReceipt !== null}
+        onOpenChange={(isOpen) => !isOpen && setPendingReceipt(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Venta registrada</AlertDialogTitle>
+            <AlertDialogDescription>¿Querés descargar el comprobante en PDF?</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, gracias</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReceipt) downloadReceiptPdf(pendingReceipt)
+                setPendingReceipt(null)
+              }}
+            >
+              Descargar recibo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

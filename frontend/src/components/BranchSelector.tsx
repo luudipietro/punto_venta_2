@@ -14,7 +14,7 @@ export function BranchSelector() {
 
   if (role !== 'admin') {
     const branchName = branches?.find((branch) => branch.id === activeBranchId)?.name ?? '-'
-    return <span className="text-sm font-medium">Sucursal: {branchName}</span>
+    return <span className="truncate text-sm font-medium">Sucursal: {branchName}</span>
   }
 
   return (
@@ -22,7 +22,7 @@ export function BranchSelector() {
       value={activeBranchId ? String(activeBranchId) : undefined}
       onValueChange={(value) => setActiveBranch(Number(value))}
     >
-      <SelectTrigger className="w-56">
+      <SelectTrigger className="w-36 sm:w-56">
         <SelectValue placeholder="Elegir sucursal" />
       </SelectTrigger>
       <SelectContent>

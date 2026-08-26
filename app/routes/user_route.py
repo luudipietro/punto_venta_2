@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
-from app.core.auth import require_admin
+from app.core.auth import get_current_user, require_admin
 from app.domain.user import User
 from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.services.user_service import UserService, get_user_service
@@ -20,20 +20,41 @@ async def get_user(user_id: int, service: UserService = Depends(get_user_service
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    payload: UserCreate, service: UserService = Depends(get_user_service)
+    payload: UserCreate,
+    service: UserService = Depends(get_user_service),
+    current_user: User = Depends(get_current_user),
 ) -> User:
-    return await service.create(payload.username, payload.password, payload.role, payload.branch_id)
+    return await service.create(
+        payload.username,
+        payload.password,
+        payload.role,
+        payload.branch_id,
+        acting_user=current_user,
+    )
 
 
 @router.put("/{user_id}", response_model=UserRead)
 async def update_user(
-    user_id: int, payload: UserUpdate, service: UserService = Depends(get_user_service)
+    user_id: int,
+    payload: UserUpdate,
+    service: UserService = Depends(get_user_service),
+    current_user: User = Depends(get_current_user),
 ) -> User:
     return await service.update(
-        user_id, payload.username, payload.role, payload.branch_id, payload.password
+        user_id,
+        payload.username,
+        payload.role,
+        payload.branch_id,
+        payload.password,
+        current_password=payload.current_password,
+        acting_user=current_user,
     )
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: int, service: UserService = Depends(get_user_service)) -> None:
-    await service.delete(user_id)
+async def delete_user(
+    user_id: int,
+    service: UserService = Depends(get_user_service),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    await service.delete(user_id, acting_user=current_user)
