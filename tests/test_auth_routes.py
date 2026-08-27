@@ -1,6 +1,7 @@
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import rate_limit
 from app.domain.branch import Branch
 from app.domain.user import UserRole
 from app.repositories.branch_repository import SqlAlchemyBranchRepository
@@ -47,6 +48,27 @@ async def test_login_with_wrong_password_returns_422(
     resp = await client_no_auth.post("/auth/login", json={"username": "admin", "password": "wrong"})
 
     assert resp.status_code == 422
+
+
+async def test_login_is_rate_limited_after_repeated_failures(
+    client_no_auth: AsyncClient, db_session: AsyncSession
+) -> None:
+    rate_limit.reset_all()
+    await _seed_user(db_session, "admin", "admin123", UserRole.ADMIN)
+
+    for _ in range(rate_limit._MAX_ATTEMPTS):
+        resp = await client_no_auth.post(
+            "/auth/login", json={"username": "admin", "password": "wrong"}
+        )
+        assert resp.status_code == 422
+
+    # Correct password too — the limiter blocks by IP regardless of whether
+    # this specific attempt would otherwise have succeeded.
+    resp = await client_no_auth.post(
+        "/auth/login", json={"username": "admin", "password": "admin123"}
+    )
+    assert resp.status_code == 429
+    rate_limit.reset_all()
 
 
 async def test_me_without_token_returns_401(client_no_auth: AsyncClient) -> None:

@@ -212,6 +212,62 @@ works across all branches.
   "Contraseña actual" field only when `editingId === authUser?.id` and the password field is
   non-empty.
 
+## Security hardening
+
+Findings from a manual security review, fixed in place:
+
+- **`Settings.secret_key` defaulting to a hardcoded string (`DEFAULT_SECRET_KEY =
+  "dev-secret-change-me"` in `app/core/config.py`) is a real, confirmed auth-bypass vector, not a
+  theoretical one** — this default is public (it's committed source), so anyone who reads it can
+  forge a valid JWT for any user (e.g. `sub: "1"`, the seeded admin) and authenticate without ever
+  knowing a password, as `jwt.decode` only checks the signature, not who issued it. This was
+  actually found *in effect* on this project's own dev deployment — the running backend had never
+  had `SECRET_KEY` set in its `.env`, so it was silently signing every session with the public
+  default. `create_app()` (`app/main.py`) now logs a loud `logger.warning(...)` at startup whenever
+  `settings.secret_key == DEFAULT_SECRET_KEY`, specifically so this can't silently recur — **treat
+  that warning as a stop-what-you're-doing signal**, not a lint nit. The default itself is left in
+  place (removing it would break the documented zero-config `uv run uvicorn ...` local quick-start),
+  the warning is the actual mitigation. Real deployments must set a real `SECRET_KEY` in `.env`
+  (`python -c "import secrets; print(secrets.token_urlsafe(48))"` is a reasonable way to generate
+  one) — rotating it immediately invalidates every existing session, which is also the only way to
+  force-logout everyone if a leak is ever suspected (see the "JWTs can't be revoked" known
+  limitation below — there's no other mechanism).
+- **`/auth/login` had no brute-force protection** — `app/core/rate_limit.py` (new, no external
+  dependency) is a minimal in-memory limiter: 5 failed attempts from the same client IP within 15
+  minutes returns `429` regardless of whether the credentials on that 6th attempt are actually
+  correct. Keyed by **IP, not username** — limiting by username would let an attacker lock out a
+  *known legitimate* account just by throwing bad passwords at it from anywhere. `auth_route.py`'s
+  `login` wraps `service.authenticate(...)` in a try/except that calls `record_login_failure`/
+  `clear_login_failures` around it. **In-memory and per-process on purpose**: this app runs as a
+  single Uvicorn process for one shop, so there's no shared cache to keep state in; a
+  horizontally-scaled deployment (multiple workers/instances) would need a shared store (Redis, a DB
+  table) instead for this to still work correctly — flagged in the module's own docstring so it's
+  not forgotten if that ever changes. `rate_limit.reset_all()` exists purely for test isolation
+  (`tests/test_auth_routes.py`'s new rate-limit test calls it before and after, since the module-level
+  `_failures` dict otherwise persists for the whole pytest process and could make an unrelated later
+  test's login unexpectedly hit `429`).
+- **No password length/complexity requirement existed** — `UserCreate.password`/`UserUpdate.password`
+  (`app/schemas/user_schema.py`) now require `min_length=8` via Pydantic's `Field(...)`. A floor, not
+  a full policy (no complexity/rotation/reuse rules) — proportionate to this app's scope as a
+  single-shop internal tool, not a public-facing service.
+- **Reviewed and found already solid, no changes needed**: no raw/string-interpolated SQL anywhere
+  outside migrations (everything goes through SQLAlchemy's parameterized ORM — no injection surface);
+  no `dangerouslySetInnerHTML`/`eval`/`new Function` anywhere in the frontend (React's default
+  escaping covers rendered content — no XSS vector found); every router is accounted for in
+  `api_router.py`'s auth-dependency wiring (audited exhaustively — no router accidentally missing
+  `get_current_user`/`require_admin`); the generic `Exception` handler
+  (`app/core/exception_handlers.py`) never leaks a stack trace to the client, only to the server log;
+  `POST /uploads/images` already had solid defenses (server-generated UUID filename — no path
+  traversal via a user-supplied name; MIME-type allowlist; 5MB cap) even though it trusts the
+  client's `Content-Type` header rather than sniffing actual file bytes — accepted as low-risk given
+  those other protections, rather than adding a Pillow dependency to verify file content too.
+- **Deliberately left as-is (explicit product decision, not overlooked)**: `GET /sales`,
+  `/purchases`, `/exchanges`, `/customers` and similar read endpoints are not branch-scoped — any
+  logged-in empleado can read another branch's sales/purchases/exchanges (never write to them; see
+  the branch-scoped authorization pattern above, which still applies to every mutation). Same
+  reasoning as `Stock` reads already being unrestricted (see Scope below): cross-branch visibility is
+  useful in a multi-branch shop, and was confirmed intentional rather than changed.
+
 ## Scope
 
 Fully implemented, following the same per-entity file pattern throughout: Category, Brand, Color

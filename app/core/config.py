@@ -3,6 +3,14 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Only ever meant as a zero-config convenience for a fresh local checkout —
+# see the "known default JWT secret" warning `create_app()` logs when this is
+# still in effect. Never rely on this value outside of local dev; a real
+# deployment must set SECRET_KEY in its own .env (the app will still start
+# without it, but every session it issues is forgeable by anyone who has
+# read this file, which is public on GitHub).
+DEFAULT_SECRET_KEY = "dev-secret-change-me"
+
 
 class Settings(BaseSettings):
     """Application configuration, sourced from environment variables / .env."""
@@ -26,7 +34,7 @@ class Settings(BaseSettings):
     media_url: str = "/media"
 
     # JWT signing — override via the SECRET_KEY env var in real deployments.
-    secret_key: str = "dev-secret-change-me"
+    secret_key: str = DEFAULT_SECRET_KEY
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 4
 
