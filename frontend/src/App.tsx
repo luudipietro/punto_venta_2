@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/theme/ThemeProvider'
+import { BrandMetaSync } from '@/components/BrandMetaSync'
 import { AppRoutes } from '@/routes'
 
 const queryClient = new QueryClient({
@@ -15,14 +16,15 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
-    <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <BrandMetaSync />
         <BrowserRouter>
           <AppRoutes />
         </BrowserRouter>
         <Toaster />
-      </QueryClientProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   )
 }
 

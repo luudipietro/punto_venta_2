@@ -43,6 +43,7 @@ const primaryNav = [
   { to: '/promociones', label: 'Promociones', icon: Tag },
   { to: '/cambios', label: 'Cambios y devoluciones', icon: ArrowLeftRight },
   { to: '/catalogo/clientes', label: 'Clientes', icon: UserRound },
+  { to: '/carteles', label: 'Carteles de precio', icon: Sticker },
 ]
 
 // Admin-only — Category/Brand/Color/Size can't even be renamed once created
@@ -63,7 +64,6 @@ const catalogNav = [
 const adminNav = [
   { to: '/finanzas', label: 'Finanzas', icon: LineChart },
   { to: '/catalogo/trazabilidad', label: 'Trazabilidad', icon: History },
-  { to: '/carteles', label: 'Carteles de precio', icon: Sticker },
 ]
 
 function NavItem({ to, label, icon: Icon }: { to: string; label: string; icon: typeof ShoppingCart }) {

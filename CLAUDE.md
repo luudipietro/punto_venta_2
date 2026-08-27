@@ -137,7 +137,7 @@ works across all branches.
   `config.py`/`exceptions.py`): `bcrypt.hashpw`/`checkpw` directly (plain `bcrypt`, not `passlib` —
   avoids passlib's stale bcrypt-72-byte-warning issue with modern bcrypt versions) and
   `jwt.encode`/`decode` (PyJWT) with `Settings.secret_key`/`jwt_algorithm`/
-  `access_token_expire_minutes` (12h) from `app/core/config.py`. The JWT payload carries `sub` (user
+  `access_token_expire_minutes` (4h) from `app/core/config.py`. The JWT payload carries `sub` (user
   id), `role`, and `branch_id` — `branch_id` is only ever meaningful for an `empleado`'s token
   (baked in at login), never trusted from an admin's token for authorization decisions (an admin's
   *active* branch is a client-side UI convenience only, see below).
@@ -219,7 +219,7 @@ Fully implemented, following the same per-entity file pattern throughout: Catego
 quantity-adjustment endpoints), PaymentMethod (with `is_cash`/`surcharge_percentage`), Customer
 (with `dni`/`name`), Sale/SaleItem/SalePayment, Purchase/PurchaseItem, Promotion,
 Exchange/ExchangeReturnItem/ExchangeNewItem/ExchangePayment, Expense, User (see **Authentication and
-authorization** above), and BrandSettings (a single-row logo/company-name settings table, see
+authorization** above), and BrandSettings (a single-row logo/company-name/colors settings table, see
 below). A React/Vite frontend (`frontend/`, see the **Frontend** section below) covers the whole
 API. The original domain model is now fully covered.
 
@@ -232,10 +232,66 @@ API. The original domain model is now fully covered.
   `PUT /brand-settings` (admin-only) upserts it; logo upload reuses the existing
   `POST /uploads/images` endpoint unchanged (`ProductsPage.tsx`'s cover-photo upload flow) — nothing
   about that endpoint is product-specific, `BrandSettingsPage.tsx` just calls the same
-  `uploadProductImage()` helper and stores the returned URL. `frontend/src/theme/brand.config.ts`
-  itself is untouched (its `colors` light/dark tokens stay static/code-only) — only the logo/company
-  name gained a DB-backed override, read via `useBrandSettings()` with the static file's values as
-  the fallback/loading-state default so there's no flash-of-no-logo before the query resolves.
+  `uploadProductImage()` helper and stores the returned URL, now via `LogoCropDialog.tsx` first (see
+  below). `frontend/src/theme/brand.config.ts` still holds the **factory-default** logo/company
+  name/colors, read via `useBrandSettings()` with those static values as the fallback/loading-state
+  default so there's no flash-of-no-brand before the query resolves — but colors are no longer
+  code-only (see "Brand colors" below).
+
+- **Brand colors**: `BrandSettings.colors` is an optional JSON column
+  (`app/infrastructure/db/models/brand_settings_model.py`, `sa.JSON`, migration
+  `9d3c1b4f7a2e_add_brand_settings_colors.py`) storing `{"light": {...}, "dark": {...}}`, each a flat
+  dict of 14 CSS color strings (`background`, `foreground`, `card`, `card_foreground`, `primary`,
+  `primary_foreground`, `secondary`, `secondary_foreground`, `muted`, `muted_foreground`, `accent`,
+  `accent_foreground`, `border`, `ring` — deliberately mirrors `index.css`'s `:root`/`.dark` tokens,
+  *not* including `destructive`/`sidebar-*`/`chart-*`, which are utility/semantic colors rather than
+  "brand"). Kept as a raw `dict` through the domain layer (`app/domain/brand_settings.py`) rather
+  than a nested dataclass — it's presentation data, not a business invariant this layer needs to
+  validate; validation instead happens at the schema boundary (`app/schemas/brand_settings_schema.py`'s
+  `BrandColorSet`/`BrandColors` Pydantic models, snake_case field names — the wire format the
+  frontend's `api/brandSettings.ts` `ApiColorSet` mirrors exactly, same convention as every other
+  snake_case API type in this codebase).
+  - `frontend/src/theme/brand.config.ts`'s `BrandColorSet` interface expanded from 2 tokens
+    (`primary`/`primaryForeground`) to the same 14, camelCase (the established convention in that
+    file) — its `colors.light`/`.dark` are literally copy-pasted from `index.css`'s `oklch(...)`
+    values, so an unconfigured install looks identical to before this feature.
+  - `frontend/src/theme/ThemeProvider.tsx`'s `applyTheme(theme, overrides)` now sets all 14 CSS
+    custom properties (previously only `--primary`/`--primary-foreground`/`--sidebar-primary(-
+    foreground)`/`--ring`), merging `{...brandConfig.colors[theme], ...overrides}` token-by-token —
+    `overrides` comes from `useBrandSettings()`'s `colors?.[theme]` (converted from the API's
+    snake_case via `fromApiColorSet()` in `lib/color.ts`), so any token the admin hasn't touched
+    falls back to the default. **`ThemeProvider` now has to sit *inside* `QueryClientProvider`** in
+    `App.tsx` (the two were swapped) since it calls `useBrandSettings()`, a react-query hook.
+  - `frontend/src/modules/settings/BrandSettingsPage.tsx` renders 14×2 native
+    `<input type="color">` pickers (two `ColorEditor` columns, light/dark, each with its own
+    "Restablecer" button) — seeded from the DB override if present, else from
+    `cssColorToHex(brandConfig.colors[theme][token])` (`lib/color.ts` — `<input type="color">` only
+    accepts hex, so the `oklch(...)` defaults need converting). On save, `toApiColorSet()` converts
+    the camelCase local state back to the API's snake_case shape.
+  - `frontend/src/lib/priceTags.ts`'s price color also respects this: `PriceTagsPage.tsx` passes
+    `brand?.colors?.light?.primary ?? brandConfig.colors.light.primary` as `primaryColor` — only the
+    price number on a printed cartel is tied to the brand palette, not its border or footer text
+    (those stay fixed grays regardless of configured color).
+  - **`frontend/src/lib/color.ts`** (new) holds `resolveColorRgb()`/`cssColorToHex()` (shared by
+    `priceTags.ts` and `BrandSettingsPage.tsx` — see the canvas-pixel-read gotcha under "Price tag
+    generator" below) and `fromApiColorSet()`/`toApiColorSet()` (the snake_case ⇄ camelCase
+    converters between the wire format and `BrandColorSet`).
+- **Favicon and tab title follow the brand too**: `frontend/src/components/BrandMetaSync.tsx`
+  (mounted once in `App.tsx`, alongside `ThemeProvider`) sets `document.title` and the
+  `<link rel="icon">` href from `useBrandSettings()`'s `company_name`/`logo_url` (same
+  `?? brandConfig...` fallback pattern as everywhere else). Superseded the old static
+  `index.html` `<title>frontend</title>`/`/favicon.svg` the moment the query resolves.
+- **Logo crop on upload**: `frontend/src/modules/settings/LogoCropDialog.tsx` — selecting a file in
+  `BrandSettingsPage.tsx` no longer uploads it straight away; it opens a freeform crop dialog first
+  (drag to move, drag a corner handle to resize a rectangle over the image, plain pointer events, no
+  new dependency) so a logo that comes in oversized/off-center can be trimmed before it's saved,
+  without the admin needing their own image editor. "Aplicar recorte" draws the selected region onto
+  a canvas at its natural pixel size and uploads that as a new `File` via the same
+  `uploadProductImage()` call as before. The crop stage's checkerboard/handle colors are **hardcoded
+  neutral values** (`#ffffff`/`#d4d4d4`/`#3b82f6`), not theme CSS vars — a dark-mode stage would
+  otherwise blend a typically-dark logo into the background, and since colors are now
+  admin-configurable, `--primary` itself could theoretically end up close to the image's own colors
+  too. An image-editing tool needs to look the same regardless of the app's current theme.
 
 - **All API error messages are in Spanish**: `app/core/exceptions.py` translates domain exceptions
   via a small `_ENTITY_NAMES_ES` lookup (`Product` → "producto", `Stock` → "stock", etc.) baked into
@@ -706,15 +762,18 @@ are never fetched since this code only uses `jsPDF`'s plain text/line drawing) b
 **80mm-wide ticket-style** receipt, not an A4 invoice: monospace (`courier`) font, dashed-line
 separators, itemized product/variant/qty/unit-price/subtotal lines, subtotal/discount/promotion-
 discount/total, and a footer noting "Este comprobante no es una factura" (it's explicitly a
-proof-of-purchase, not a fiscal invoice). A shared `Ticket` class centers the same 80mm-wide content
-column either on its own 80mm-tall roll (`format: 'thermal'`, height computed from the item count)
-or on a full A4 sheet (`format: 'a4'`, offset horizontally so the rest of the page is blank) — the
-**A4 option exists specifically for a shop without a thermal printer**: same ticket look, just
-printable on any regular printer instead of needing 80mm roll paper. Both `buildReceiptPdf`
-(Sale) and `buildExchangeReceiptPdf` (Cambio/Devolución, `A PAGAR`/`A REINTEGRAR` instead of a
-flat total, sign-prefixed returned-item lines) share this `Ticket` helper; `downloadReceiptPdf`/
-`downloadExchangeReceiptPdf` trigger the browser's native file-save directly — no server
-involvement, no temp file.
+proof-of-purchase, not a fiscal invoice). A shared `Ticket` class renders the same content column
+on any of three `ReceiptFormat`s: `'thermal'` (80mm-wide, on its own roll, height computed from the
+item count so there's no wasted paper), `'a4'` (same 80mm column, centered on a full A4 sheet — for
+a shop without a thermal printer), or `'a6'` (uses the **entire** 105mm width of an A6 sheet, and is
+capped at its 148mm height — unlike thermal, it never grows past the page: if the estimated content
+doesn't fit, `Ticket`'s `lineStep` shrinks proportionally, down to a `MIN_LINE_STEP_MM` floor,
+instead of overflowing). `Ticket.width`/`Ticket.lineStep` are per-format (not the old hardcoded
+`CONTENT_WIDTH_MM`/`4.2`), so `left()`/`right()`/`center()`/`dashLine()` all adapt automatically.
+Both `buildReceiptPdf` (Sale) and `buildExchangeReceiptPdf` (Cambio/Devolución, `A PAGAR`/
+`A REINTEGRAR` instead of a flat total, sign-prefixed returned-item lines) share this `Ticket`
+helper; `downloadReceiptPdf`/`downloadExchangeReceiptPdf` trigger the browser's native file-save
+directly — no server involvement, no temp file.
 
 - **Item variant reads "Talle L"/"Color Rojo", not a bare "L"** — `SaleCatalogEntry`/`StockOption`
   (`useSaleCatalog.ts`/`useStockOptions.ts`) now expose `colorName`/`sizeLabel` separately (not just
@@ -723,16 +782,51 @@ involvement, no temp file.
   ever reaches a receipt — fixes a real bug found in manual testing where a size label alone (e.g.
   "3") read like a quantity on the printed ticket. `cartStore.CartLine` carries `colorName`/
   `sizeLabel` through from `ProductPicker.tsx`'s `addVariant` for this reason.
-- **Receipt header order is Fecha → Hora → Total → Cliente → Venta #N** (deliberately, per explicit
-  feedback) — the sale/exchange number is the *last* thing printed at the top, not the headline; a
-  cashier scanning the ticket cares about the date/amount/customer first.
-- **Card-surcharge-aware total**: `ReceiptInput`/`ExchangeReceiptInput` optionally carry `payments:
-  {methodName, amount}[]` (the *gross*, `amount_with_surcharge` figures, same ones `PaymentPanel.tsx`
-  already collects) — `lib/receipt.ts`'s `grossTotal()` sums them and, if that differs from the
-  sale's own net total, prints a separate `Recargo (<método>)` line and makes the printed `TOTAL`
-  match what was *actually charged* (the gross amount), not the pre-surcharge sale total. This
-  directly answers "what do we show when paid by card" — rather than repricing every line item, the
-  surcharge shows up as its own transparent line.
+- **No sale/exchange number is printed on the receipt at all** (per explicit feedback — a customer
+  shouldn't see an internal id) — `buildReceiptPdf`'s header stops at Fecha → Hora → Total →
+  Cliente, and `buildExchangeReceiptPdf` dropped its "Venta original #N" row too (it kept "Cambio
+  #Y" — that identifies the comprobante itself, not "the sale number"). The PDF filename (see below)
+  still embeds the sale id, since that's for the shop's own filesystem, not something the customer
+  reads.
+- **No "Recargo" line — every printed unit price is already the card-inclusive "list price"**
+  (per explicit feedback: the word "Recargo" itself is not allowed to appear). `buildReceiptPdf`
+  computes `ratio = grossTotal(payments, total) / total` (gross paid ÷ net sale total) and, when
+  `ratio !== 1`, reprices every item's `unitPrice` plus `subtotal`/`promotionDiscount`/`discount` by
+  that same ratio (`applySurchargeToLinePrices`) before printing — so a $10 shirt paid with a
+  10%-surcharge card prints as $11, and every line still sums exactly to the printed `TOTAL`. No
+  separate surcharge row exists anymore. `ProductPicker.tsx`'s surcharge-aware total logic itself is
+  unchanged; only how the receipt *displays* it changed.
+- **Ítem name wraps to 2 lines instead of being truncated with `…`** — `Ticket.itemLine` used to
+  hard-truncate a long product name to 40 characters on one line; it now uses
+  `doc.splitTextToSize(...)` to wrap up to 2 real lines (ellipsis only on the 2nd line if a 3rd would
+  be needed), sized to the ticket's actual content width so it also adapts to the A6 format. The
+  height estimate used to size a thermal ticket accounts for this (3 lines worth of space per item,
+  not 2), so wrapping never pushes text past the bottom of the page.
+- **Filename is `fecha-hora-monto-cliente-nrodeventa.pdf`**, not `recibo-venta-{id}.pdf` — built by
+  `filenameDateTime()`/`slugify()` in `receipt.ts`. This is purely the *downloaded file's* name
+  (what the shop sees in its Descargas folder); it doesn't affect anything printed on the ticket
+  itself.
+- **Reimprimir recibo**: `SaleDetailPanel.tsx` can regenerate a sale's receipt (any of the 3
+  formats) after the fact — `buildReceiptInput()` reconstructs a `ReceiptInput` from the already-
+  loaded `useSale(id)`/`useStockOptions()`/`usePaymentMethods()`/`useCustomer()` data, the same shape
+  `SalePage.tsx`'s post-sale flow builds from local cart state. **Every numeric field pulled from
+  the API is wrapped in `Number(...)`** (`unit_price`, `subtotal`, `discount`, `promotion_discount`,
+  `total`, `amount_with_surcharge`) — see the "Decimal fields are JSON strings" gotcha below for why
+  that's required here specifically (this is the one receipt-building path that reads straight from
+  API responses instead of live local component state).
+- **Gotcha: API `Decimal` fields are JSON *strings*, not numbers — summing them with bare `+` breaks
+  silently.** FastAPI/Pydantic serialize `Decimal` to a JSON string (`"52000.00"`, not `52000`) to
+  avoid float precision loss. Multiplication/division auto-coerce a numeric string fine (`"3" * 2 ===
+  6`), which is why most of this codebase's money math "just works" without anyone converting
+  explicitly — but `+` does **not**: if either operand is a string, `+` concatenates instead of
+  adding. This is a real bug found via manual QA: any Cambio/Devolución with ≥1 payment showed
+  **"$ NaN"** in `SalesHistoryPage.tsx`'s daily breakdown (`ExchangeCashRow`'s
+  `payments.reduce((sum, p) => sum + p.amount, 0)`) and, in `ExchangeDetailPanel.tsx`, silently
+  turned `waived` into `NaN` — which then *always* rendered a bogus "No reembolsado: $NaN" row, even
+  on a fully-paid exchange, since `NaN !== 0` is always true. Both now do
+  `sum + Number(payment.amount)`; `lib/receipt.ts`'s `grossTotal()` was hardened the same way as a
+  shared defensive fix. **Watch for this pattern (`sum + apiField`) anywhere new money math is
+  added** — it's silent (no exception, no console error) until you look at the rendered number.
 - **`ProductPicker.tsx` shows the variant on the card when only one is left in stock** — previously
   a product's card only showed "N variantes disponibles" when there was more than one; with exactly
   one remaining stock row, nothing hinted which variant that was until it landed in the cart. Now
@@ -742,9 +836,10 @@ involvement, no temp file.
 
 `generador_carteles/` (repo root) is a **standalone, unrelated** Python/reportlab CLI script built
 for one specific past client — console-driven, hardcoded branding, not read from this system at
-all. `/carteles` (admin-only) is the in-app equivalent: pick products **already loaded with a price**
-in this POS, set a copy count (and an optional free-text "detalle") per product, choose a sheet
-layout, and get a PDF — using *this* system's logo/company name, not a hardcoded one.
+all. `/carteles` (visible to **both roles**, not admin-only — a cashier should be able to print a
+tag without needing an admin around) is the in-app equivalent: pick products **already loaded with
+a price** in this POS, set a copy count (and an optional free-text "detalle") per product, choose a
+sheet layout, and get a PDF — using *this* system's logo/company name, not a hardcoded one.
 
 - `frontend/src/lib/priceTags.ts` (client-side `jsPDF`, same no-backend approach as `receipt.ts`)
   ports the reference script's text-fit algorithm (`_armar_lineas`/`_partir_por_caracteres` →
@@ -760,11 +855,38 @@ layout, and get a PDF — using *this* system's logo/company name, not a hardcod
 - **Logo**: rasterized onto an off-screen `<canvas>` and embedded as a PNG (`jsPDF.addImage` can't
   place an SVG directly) — resolves to `null`, and is skipped, on any load/draw failure, the same
   graceful-degradation convention used for product images elsewhere (`onError` hides broken `<img>`s).
-- **Color**: `brandConfig.colors.light.primary` (an `oklch(...)` string) is resolved to an RGB triplet
-  jsPDF can use by setting a throwaway element's `color` to that exact string and reading back
-  `getComputedStyle(...).color` — lets the browser do the color-space conversion instead of writing
-  one by hand. Always the **light** palette regardless of the shop's current UI theme, since a
-  printed tag should look the same either way.
+- **Color**: `PriceTagsInput.primaryColor` (defaults to `brandConfig.colors.light.primary`, but
+  `PriceTagsPage.tsx` passes `brand?.colors?.light?.primary` when the admin has configured one —
+  see "Brand colors" below) is resolved to an RGB triplet via `resolveColorRgb()` in the shared
+  `frontend/src/lib/color.ts` (moved there from this file so `ThemeProvider`/`BrandSettingsPage`
+  could reuse it too). Always the **light** palette regardless of the shop's current UI theme, since
+  a printed tag should look the same either way. **Gotcha found the hard way**: `resolveColorRgb`
+  used to read `getComputedStyle(probe).color` on a throwaway element — that trick silently broke on
+  newer Chromium, which echoes an `oklch(...)` input straight back out as `oklch(...)` instead of
+  normalizing it to `rgb(...)`, and the old regex-based parser then read `oklch(1 0 0)` (white) as
+  `rgb(1, 0, 0)` (near-black-red). Fixed by painting the color onto a real 1×1 `<canvas>` and reading
+  back the actual rendered pixel bytes via `getImageData()` instead — canvas always rasterizes to
+  concrete sRGB, regardless of how `getComputedStyle` chooses to serialize the color.
+- **Descuento de promoción en el cartel**: `PriceTagItem.originalPrice` (optional) — when set and
+  greater than `price`, `drawTag` renders it struck through (a manually-drawn line across the
+  measured text width, since jsPDF has no `text-decoration`) just above the final price, in both the
+  vertical and horizontal tag layouts. `PriceTagsPage.tsx` resolves which promotions apply to a
+  product via `useQueries` fetching every active promotion's detail in parallel (`usePromotions()`
+  only returns the list, not `items[]` — same list/detail split `usePromotion(id)` already has;
+  `useQueries` shares its `['promotions', id]` cache key so it doesn't duplicate fetches). A
+  `Select` per row lets the cashier pick "Sin promoción" or one of the matching `PromotionItemRead`
+  candidates (matched by `product_id`, or `category_id` against the product's own category);
+  `applyDiscount()` computes the discounted price the same way the backend's promotion math does
+  (percentage or fixed amount, floored at 0).
+- **Carteles manuales**: a cartel doesn't have to come from the product catalog — `PriceTagsPage.tsx`
+  has a second, separate mini-form ("Carteles manuales") for a free-text name + price + copies +
+  detail, for anything not worth loading as a real `Product` just to print a tag for it (a display
+  sample, a one-off). These `ManualItem`s get merged into the same `PriceTagItem[]` passed to
+  `buildPriceTagsPdf` as the catalog selections, right before generating.
+- **Precio sin centavos en el cartel**: `formatCurrencyNoCents()` (`lib/format.ts`, a second
+  `Intl.NumberFormat` instance with `maximumFractionDigits: 0`) is used only for the price text drawn
+  onto a tag — a printed "$10.000,00" reads as clutter at a glance. Receipts and every other money
+  display in the app keep using `formatCurrency()` (with cents) unchanged.
 - **Gotcha found the hard way: `jsPDF.setFontSize()` always takes points, never the document's own
   unit.** Every measurement in this file is otherwise in millimeters (matching `receipt.ts`'s
   convention), so the very first version of this feature fed mm-scale numbers straight into
@@ -774,11 +896,12 @@ layout, and get a PDF — using *this* system's logo/company name, not a hardcod
   (`textWidth()`, `setFontSizeMm()`) — every other calculation (positions, wrap widths, margins)
   stays in mm untouched. Watch for this same trap in any future jsPDF-based feature: `getTextWidth()`
   returns a value in the *document's* unit, but `setFontSize()` never does.
-- `frontend/src/modules/pricetags/PriceTagsPage.tsx` — a plain table over `useProducts()` (name
-  filter, same substring pattern as `ProductPicker.tsx`) with an inline "Cantidad" and "Detalle"
-  input per row; the detail text is ephemeral UI state only, never persisted (`Product` gains no new
-  field). A running "N carteles — M hojas A4" summary mirrors the source script's own console
-  summary before generating.
+- `frontend/src/modules/pricetags/PriceTagsPage.tsx` — a table over `useProducts()` (name filter,
+  same substring pattern as `ProductPicker.tsx`) with an inline "Cantidad", "Detalle", and
+  "Promoción" (see above) input per row, plus a separate "Carteles manuales" mini-table for
+  non-catalog entries; the detail text and manual entries are ephemeral UI state only, never
+  persisted (`Product` gains no new field). A running "N carteles — M hojas A4" summary mirrors the
+  source script's own console summary before generating.
 
 ## Database
 
@@ -858,6 +981,12 @@ for what was actually a foreign-key violation on the audit insert). If a future 
 another FK from a new table to `users.id`, make sure any code path that can fire before a real user
 row exists (tests, seed scripts) either persists that user first or the FK stays nullable/absent.
 
+One more migration, also applied: `9d3c1b4f7a2e` (`brand_settings.colors`, a nullable `sa.JSON`
+column — no backfill, existing single row just gets `colors: null` and falls back to
+`brandConfig.colors` defaults on the frontend; see "Brand colors" above). Generic `sa.JSON`, not
+`postgresql.JSONB`, to stay consistent with "no engine-specific types outside migrations" — this is
+the first JSON-typed column in the project.
+
 ## Frontend
 
 `frontend/` is a React 19 + Vite + TypeScript SPA (no SSR) that consumes the API above end to end.
@@ -881,8 +1010,9 @@ frontend/src/
     users/          # UsersPage.tsx (admin-only) — not built on SimpleCatalogPage, since the
                      # form has conditional logic (branch field only for role=empleado,
                      # password optional on edit = "leave unchanged") that page doesn't support
-    settings/       # BrandSettingsPage.tsx (admin-only) — logo upload (reuses
-                     # uploadProductImage) + company name, see BrandSettings above
+    settings/       # BrandSettingsPage.tsx (admin-only) — logo upload via LogoCropDialog.tsx
+                     # (reuses uploadProductImage) + company name + full color palette, see
+                     # BrandSettings/"Brand colors" above
     catalog/        # SimpleCatalogPage.tsx: generic table+dialog CRUD screen, config-driven
                      # (Field.type now includes 'checkbox', used by is_cash) — Category, Brand,
                      # Size, Branch, PaymentMethod, Customer use it as-is; Color and Product got
@@ -920,14 +1050,19 @@ frontend/src/
                      # date) and PurchaseDetailPanel.tsx (click a row to see its PurchaseItems with
                      # product image/name, mirrors SaleDetailPanel; pay/cancel actions + status badge)
     promotions/     # PromotionsPage.tsx (create/edit, full item replace on save — see Promotion
-                     # in Scope above, including the frontend-only "precio final del combo" toggle)
-                     # and PromotionDetail.tsx, a read-only "what's in this promo" breakdown shared
+                     # in Scope above, including the frontend-only "precio final del combo" toggle;
+                     # an "Activa" checkbox in the dialog plus a per-row Power/PowerOff quick-toggle
+                     # button let a promotion be deactivated without deleting it — handleSubmit used
+                     # to hardcode `active: true` on every save, silently reactivating a promo the
+                     # admin had just turned off if they ever re-opened it to edit something else;
+                     # fixed by threading a real `active` state through the form) and
+                     # PromotionDetail.tsx, a read-only "what's in this promo" breakdown shared
                      # between a "Ver detalle" row action on /promociones and a link next to
                      # "Promoción aplicada" in CartPanel.tsx during a sale
     shared/useStockOptions.ts  # stock-row -> product/variant/image/price resolver, see gotcha below
   components/       # Layout (sidebar + topbar: BranchSelector + user/logout; theme toggle in
                      # sidebar footer), PageHeader, RequireAuth.tsx/RequireAdmin.tsx (route
-                     # guards), BranchSelector.tsx, ui/ (shadcn)
+                     # guards), BranchSelector.tsx, BrandMetaSync.tsx (favicon/title), ui/ (shadcn)
 ```
 
 Notable frontend-specific decisions, in case they look surprising:
@@ -961,13 +1096,15 @@ Notable frontend-specific decisions, in case they look surprising:
   something that should collapse to "only my branch."
 - **Admin-only nav items are hidden, not just route-guarded**: `Layout.tsx`'s `catalogNav` array
   (Categorías/Marcas/Colores/Talles/Sucursales/Métodos de pago/Usuarios/Configuración) and a separate
-  `adminNav` array (Finanzas/Trazabilidad/Carteles de precio — kept apart from `catalogNav` since
-  they aren't catalog CRUD screens) only render when `role === 'admin'` — an empleado never sees these links at all, and
+  `adminNav` array (Finanzas/Trazabilidad — kept apart from `catalogNav` since they aren't catalog
+  CRUD screens) only render when `role === 'admin'` — an empleado never sees these links at all, and
   navigating to one of those URLs directly redirects to `/venta` via the `RequireAdmin` route wrapper
   (`routes.tsx` nests those routes' `<Route>`s inside `<Route element={<RequireAdmin/>}>`, itself
   inside `<Route element={<RequireAuth/>}>` — both wrappers just render `<Outlet/>` or `<Navigate/>`
-  depending on `authStore`). `Clientes` moved out of `catalogNav` into the always-visible
-  `primaryNav`, since Customer management stays shared with `empleado` (no admin restriction).
+  depending on `authStore`). `Clientes` and `Carteles de precio` both moved out of an admin-gated
+  array into the always-visible `primaryNav`/`routes.tsx` top level — Customer management and price
+  tag printing both stay shared with `empleado` (no admin restriction; confirmed explicitly for
+  carteles — a cashier prints tags too).
 - **`/usuarios`'s edit dialog is still the only way to change any password**, including an admin's
   own — there's no separate "change my password" self-service page. What *did* change: editing your
   **own** row there now requires an extra "Contraseña actual" field when setting a new password (see
@@ -1023,6 +1160,15 @@ Notable frontend-specific decisions, in case they look surprising:
   silently stays narrow. Every "make this dialog bigger" override in this codebase
   (`SalesHistoryPage.tsx`, `PurchasesPage.tsx`, `PromotionsPage.tsx`, `ExchangesPage.tsx`) uses
   `sm:max-w-2xl` for this reason; keep doing that instead of a bare `max-w-*`.
+- **Gotcha: `text-align: center` on a shadcn `CardHeader` does not center an `<img>`.**
+  `components/ui/card.tsx`'s `CardHeader` is CSS **grid** (`grid auto-rows-min items-start ...`),
+  not flex — and Tailwind's Preflight reset sets `img { display: block }`. `text-align` only
+  affects inline content, so it happily centers a sibling `CardTitle`'s text but has zero effect on
+  a block-level `<img>`, which just sits at the start (left) edge of its full-width grid cell
+  instead. Found on `LoginPage.tsx`'s logo, which looked left-aligned above the centered company
+  name despite the `CardHeader` already having `items-center text-center`. Fix: give the image its
+  own `mx-auto` (or `justify-self-center`) — don't rely on a `text-*` alignment class centering
+  anything that isn't text.
 
 ## Known limitations / possible next steps
 
@@ -1068,7 +1214,7 @@ Raised during manual Postman/pgAdmin testing of the flows above; deliberately de
   hooks as their list pages, then filters by date range in the browser) — fine at a single POS's
   data volume (same reasoning `SalesHistoryPage.tsx` already relies on), but would need real
   server-side pagination/filtering if the transaction volume ever grows enough to matter.
-- **JWTs can't be revoked before they expire** (12h, `Settings.access_token_expire_minutes`):
+- **JWTs can't be revoked before they expire** (4h, `Settings.access_token_expire_minutes`):
   deleting or editing a `User` takes effect on their *next* request (since `get_current_user`
   re-fetches the row every time), but a token already issued keeps decoding successfully — and thus
   keeps *authenticating* — until it naturally expires, even if the account was deleted in the

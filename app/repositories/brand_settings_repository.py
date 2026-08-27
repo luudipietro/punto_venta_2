@@ -31,9 +31,15 @@ class SqlAlchemyBrandSettingsRepository(
             self._session.add(model)
         model.company_name = settings.company_name
         model.logo_url = settings.logo_url
+        model.colors = settings.colors
         await self._session.flush()
         return self._to_domain(model)
 
     @staticmethod
     def _to_domain(model: BrandSettingsModel) -> BrandSettings:
-        return BrandSettings(id=model.id, company_name=model.company_name, logo_url=model.logo_url)
+        return BrandSettings(
+            id=model.id,
+            company_name=model.company_name,
+            logo_url=model.logo_url,
+            colors=model.colors,
+        )

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # JWT signing — override via the SECRET_KEY env var in real deployments.
     secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 12
+    access_token_expire_minutes: int = 60 * 4
 
 
 @lru_cache

@@ -18,9 +18,9 @@ class BrandSettingsService:
     async def get(self) -> BrandSettings:
         return await self._repository.get() or _DEFAULT
 
-    async def update(self, company_name: str, logo_url: str) -> BrandSettings:
+    async def update(self, company_name: str, logo_url: str, colors: dict | None = None) -> BrandSettings:
         return await self._repository.upsert(
-            BrandSettings(company_name=company_name, logo_url=logo_url)
+            BrandSettings(company_name=company_name, logo_url=logo_url, colors=colors)
         )
 
 

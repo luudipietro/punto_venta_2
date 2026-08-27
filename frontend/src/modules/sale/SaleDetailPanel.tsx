@@ -23,7 +23,15 @@ import { useCancelSale, useSale } from '@/hooks/useSales'
 import { useCustomer } from '@/hooks/useCustomers'
 import { useExchange, useExchanges } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
+import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { formatCurrency, formatTimestamp } from '@/lib/format'
+import {
+  downloadReceiptPdf,
+  formatVariantForReceipt,
+  type ReceiptInput,
+  type ReceiptFormat,
+} from '@/lib/receipt'
+import { brandConfig } from '@/theme/brand.config'
 import { ExchangeDetailPanel } from '@/modules/exchanges/ExchangeDetailPanel'
 import { ExchangeForm } from '@/modules/exchanges/ExchangeForm'
 import { ExchangeItemsList } from '@/modules/exchanges/ExchangeItemsList'
@@ -40,16 +48,64 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
   const cancelMutation = useCancelSale()
   const { data: allExchanges } = useExchanges()
   const saleExchanges = allExchanges?.filter((exchange) => exchange.sale_id === saleId) ?? []
+  const { data: saleCustomer } = useCustomer(sale?.customer_id ?? undefined)
+  const { data: brand } = useBrandSettings()
 
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [showExchangeForm, setShowExchangeForm] = useState(false)
   const [selectedExchangeId, setSelectedExchangeId] = useState<number | null>(null)
+  const [reprintOpen, setReprintOpen] = useState(false)
 
   if (isLoading || !sale) {
     return <p className="text-sm text-muted-foreground">Cargando...</p>
   }
 
   const isCancelled = sale.cancelled_at !== null
+
+  function buildReceiptInput(): ReceiptInput {
+    // `Number(...)`: the API serializes Decimal fields (unit_price, totals,
+    // payment amounts) as JSON strings, not numbers — receipt.ts's math is
+    // mostly `*`/`/` (which auto-coerce strings fine) but `grossTotal`'s sum
+    // uses `+`, which silently string-concatenates a raw string instead of
+    // adding (see the same bug fixed in SalesHistoryPage.tsx/
+    // ExchangeDetailPanel.tsx). Converting explicitly here avoids relying on
+    // that coercion happening to work everywhere else too.
+    const items = sale!.items.map((item) => {
+      const option = stockOptions.find((entry) => entry.stockId === item.stock_id)
+      return {
+        name: option?.productName ?? `Stock #${item.stock_id}`,
+        variant: option ? formatVariantForReceipt(option.colorName, option.sizeLabel) || null : null,
+        quantity: item.quantity,
+        unitPrice: Number(item.unit_price),
+      }
+    })
+    const payments = sale!.payments.map((payment) => ({
+      methodName:
+        paymentMethods?.find((pm) => pm.id === payment.payment_method_id)?.name ??
+        `Método #${payment.payment_method_id}`,
+      amount: Number(payment.amount_with_surcharge),
+    }))
+    const createdAt = new Date(
+      sale!.created_at.endsWith('Z') ? sale!.created_at : `${sale!.created_at}Z`,
+    )
+    return {
+      companyName: brand?.company_name ?? brandConfig.companyName,
+      saleId: sale!.id,
+      createdAt,
+      items,
+      subtotal: Number(sale!.subtotal),
+      discount: Number(sale!.discount),
+      promotionDiscount: Number(sale!.promotion_discount),
+      total: Number(sale!.total),
+      customerName: saleCustomer?.name ?? null,
+      payments,
+    }
+  }
+
+  function handleReprint(format: ReceiptFormat) {
+    downloadReceiptPdf(buildReceiptInput(), format)
+    setReprintOpen(false)
+  }
 
   async function handleCancel() {
     try {
@@ -169,16 +225,21 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
         </>
       )}
 
-      {!isCancelled && (
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setShowExchangeForm((prev) => !prev)}>
-            {showExchangeForm ? 'Ocultar cambio/devolución' : 'Cambio / devolución'}
-          </Button>
-          <Button variant="destructive" onClick={() => setConfirmCancel(true)}>
-            Cancelar venta
-          </Button>
-        </div>
-      )}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => setReprintOpen(true)}>
+          Reimprimir recibo
+        </Button>
+        {!isCancelled && (
+          <>
+            <Button variant="outline" onClick={() => setShowExchangeForm((prev) => !prev)}>
+              {showExchangeForm ? 'Ocultar cambio/devolución' : 'Cambio / devolución'}
+            </Button>
+            <Button variant="destructive" onClick={() => setConfirmCancel(true)}>
+              Cancelar venta
+            </Button>
+          </>
+        )}
+      </div>
 
       {showExchangeForm && !isCancelled && (
         <>
@@ -200,6 +261,27 @@ export function SaleDetailPanel({ saleId }: { saleId: number }) {
           <AlertDialogFooter>
             <AlertDialogCancel>Volver</AlertDialogCancel>
             <AlertDialogAction onClick={handleCancel}>Cancelar venta</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={reprintOpen} onOpenChange={setReprintOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reimprimir recibo</AlertDialogTitle>
+            <AlertDialogDescription>Elegí el formato según tu impresora.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cerrar</AlertDialogCancel>
+            <Button variant="outline" onClick={() => handleReprint('a4')}>
+              Hoja A4
+            </Button>
+            <Button variant="outline" onClick={() => handleReprint('a6')}>
+              A6
+            </Button>
+            <AlertDialogAction onClick={() => handleReprint('thermal')}>
+              Térmica 80mm
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,10 +1,14 @@
 import { jsPDF } from 'jspdf'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrencyNoCents } from '@/lib/format'
+import { resolveColorRgb } from '@/lib/color'
 import { brandConfig } from '@/theme/brand.config'
 
 export interface PriceTagItem {
   name: string
   price: number
+  /** Pre-discount price, if a promotion was applied — rendered struck
+   * through above the final `price`. */
+  originalPrice?: number
   detail?: string
   copies: number
 }
@@ -28,6 +32,10 @@ export interface PriceTagsInput {
   logoUrl: string | null
   layout: SheetLayout
   items: PriceTagItem[]
+  /** Overrides `brandConfig.colors.light.primary` for the price color —
+   * lets the admin's configured brand color (BrandSettings.colors) show up
+   * on printed tags without touching the current UI theme. */
+  primaryColor?: string
 }
 
 const A4_WIDTH_MM = 210
@@ -75,27 +83,6 @@ async function fetchAsBase64(url: string): Promise<string> {
   let binary = ''
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
   return btoa(binary)
-}
-
-/** Resolves a CSS color (including modern syntaxes like oklch(), which
- * jsPDF has no idea how to parse) to an RGB triplet by letting the browser
- * do the conversion via a throwaway element — always against
- * `brandConfig.colors.light`, so a printed tag looks the same regardless of
- * whether the shop currently has the UI in dark mode. */
-function resolveColorRgb(cssColor: string): [number, number, number] {
-  const probe = document.createElement('div')
-  probe.style.position = 'fixed'
-  probe.style.opacity = '0'
-  probe.style.pointerEvents = 'none'
-  probe.style.color = cssColor
-  document.body.appendChild(probe)
-  const computed = getComputedStyle(probe).color
-  document.body.removeChild(probe)
-  const match = computed.match(/[\d.]+/g)
-  if (match && match.length >= 3) {
-    return [Math.round(Number(match[0])), Math.round(Number(match[1])), Math.round(Number(match[2]))]
-  }
-  return [30, 30, 30]
 }
 
 /** Rasterizes a (possibly SVG) logo onto an offscreen canvas so jsPDF —
@@ -259,6 +246,20 @@ function separator(doc: jsPDF, x1: number, x2: number, y: number, rgb: [number, 
   doc.line(x1, y, x2, y)
 }
 
+/** Draws a promotion's pre-discount price struck through — jsPDF has no
+ * `text-decoration`, so the line is drawn manually across the text's own
+ * measured width. */
+function drawStrikePrice(doc: jsPDF, text: string, cx: number, y: number, sizeMm: number) {
+  doc.setTextColor(120, 120, 120)
+  doc.setFont(fontFamily ?? FONT_FAMILY_FALLBACK, 'normal')
+  setFontSizeMm(doc, sizeMm)
+  doc.text(text, cx, y, { align: 'center' })
+  const w = doc.getTextWidth(text)
+  doc.setDrawColor(120, 120, 120)
+  doc.setLineWidth(0.3)
+  doc.line(cx - w / 2, y - sizeMm * 0.32, cx + w / 2, y - sizeMm * 0.32)
+}
+
 /** All "size" values below are millimeters, like every other measurement in
  * this file (see the `MM_TO_PT` note above) — `fitText`/`textWidth` and
  * `setFontSizeMm` are what convert them to points at the jsPDF boundary. */
@@ -308,14 +309,19 @@ function drawTag(
       y += nameGap
     }
 
-    const priceY = y0 + height * (nameLines.length > 1 ? 0.62 : 0.56)
-    const priceText = formatCurrency(item.price)
+    const hasPromo = item.originalPrice !== undefined && item.originalPrice > item.price
+    const priceY = y0 + height * (nameLines.length > 1 ? 0.62 : 0.56) + (hasPromo ? height * 0.04 : 0)
+    const priceText = formatCurrencyNoCents(item.price)
     let priceSize = width * 0.3
     while (
       textWidth(doc, priceText, 'bold', priceSize) > width * 0.88 &&
       priceSize > ref * 0.08
     ) {
       priceSize -= priceSize * 0.03
+    }
+    if (hasPromo) {
+      const strikeSize = Math.max(ref * 0.07, priceSize * 0.35)
+      drawStrikePrice(doc, formatCurrencyNoCents(item.originalPrice!), cx, priceY - priceSize * 0.85, strikeSize)
     }
     doc.setTextColor(...priceRgb)
     doc.setFont(fontFamily ?? FONT_FAMILY_FALLBACK, 'bold')
@@ -381,18 +387,30 @@ function drawTag(
       )
     }
 
-    const priceText = formatCurrency(item.price)
-    let priceSize = height * 0.44
+    const hasPromo = item.originalPrice !== undefined && item.originalPrice > item.price
+    const priceText = formatCurrencyNoCents(item.price)
+    let priceSize = height * (hasPromo ? 0.38 : 0.44)
     while (
       textWidth(doc, priceText, 'bold', priceSize) > rightMax &&
       priceSize > ref * 0.1
     ) {
       priceSize -= priceSize * 0.03
     }
+    const priceY = y0 + height * (hasPromo ? 0.6 : 0.56)
+    if (hasPromo) {
+      const strikeSize = Math.max(ref * 0.08, priceSize * 0.4)
+      drawStrikePrice(
+        doc,
+        formatCurrencyNoCents(item.originalPrice!),
+        rightX + rightMax / 2,
+        priceY - priceSize * 0.9,
+        strikeSize,
+      )
+    }
     doc.setTextColor(...priceRgb)
     doc.setFont(fontFamily ?? FONT_FAMILY_FALLBACK, 'bold')
     setFontSizeMm(doc, priceSize)
-    doc.text(priceText, rightX + rightMax / 2, y0 + height * 0.56, { align: 'center' })
+    doc.text(priceText, rightX + rightMax / 2, priceY, { align: 'center' })
   }
 }
 
@@ -416,7 +434,10 @@ export async function buildPriceTagsPdf(input: PriceTagsInput): Promise<jsPDF> {
   await ensureFontsLoaded(doc)
 
   const logo = input.logoUrl ? await rasterizeLogo(input.logoUrl) : null
-  const priceRgb = resolveColorRgb(brandConfig.colors.light.primary)
+  // Always resolved against the *light* primary (default or admin-configured
+  // via BrandSettings.colors) so a printed tag looks the same regardless of
+  // whether the shop currently has the UI in dark mode.
+  const priceRgb = resolveColorRgb(input.primaryColor ?? brandConfig.colors.light.primary)
   const borderRgb: [number, number, number] = [140, 140, 140]
 
   const ctx: DrawContext = { doc, companyName: input.companyName, logo, priceRgb, borderRgb }

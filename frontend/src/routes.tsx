@@ -38,6 +38,7 @@ export function AppRoutes() {
           <Route path="/promociones" element={<PromotionsPage />} />
           <Route path="/cambios" element={<ExchangesPage />} />
           <Route path="/catalogo/clientes" element={<CustomersPage />} />
+          <Route path="/carteles" element={<PriceTagsPage />} />
           <Route element={<RequireAdmin />}>
             <Route path="/catalogo/categorias" element={<CategoriesPage />} />
             <Route path="/catalogo/marcas" element={<BrandsPage />} />
@@ -48,7 +49,6 @@ export function AppRoutes() {
             <Route path="/catalogo/usuarios" element={<UsersPage />} />
             <Route path="/catalogo/trazabilidad" element={<AuditLogPage />} />
             <Route path="/finanzas" element={<FinanceDashboardPage />} />
-            <Route path="/carteles" element={<PriceTagsPage />} />
             <Route path="/configuracion" element={<BrandSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/venta" replace />} />

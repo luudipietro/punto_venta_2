@@ -470,11 +470,17 @@ function ExchangeCashRow({
 
   if (!exchange) return null
 
+  // `Number(...)`: the API serializes Decimal fields as JSON strings (to
+  // avoid float precision loss), so `payment.amount` is actually a string
+  // at runtime despite its `number` type — summing with bare `+` silently
+  // string-concatenates instead of adding, producing "$ NaN" once
+  // formatted. Real bug found via manual QA (any exchange with >=1 payment
+  // showed NaN here).
   const cashTotal = exchange.payments
     .filter((payment) =>
       paymentMethods?.some((pm) => pm.id === payment.payment_method_id && pm.is_cash),
     )
-    .reduce((sum, payment) => sum + payment.amount, 0)
+    .reduce((sum, payment) => sum + Number(payment.amount), 0)
 
   return (
     <button

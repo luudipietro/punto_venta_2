@@ -8,6 +8,20 @@ export function formatCurrency(amount: number): string {
   return currencyFormatter.format(amount)
 }
 
+const currencyFormatterNoCents = new Intl.NumberFormat('es-AR', {
+  style: 'currency',
+  currency: 'ARS',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+})
+
+/** Whole-pesos formatting for price tags — a printed cartel showing
+ * "$10.000,00" reads as clutter at a glance; shoppers expect a round
+ * number. Receipts/sales keep the exact cents via `formatCurrency`. */
+export function formatCurrencyNoCents(amount: number): string {
+  return currencyFormatterNoCents.format(Math.round(amount))
+}
+
 const dateFormatter = new Intl.DateTimeFormat('es-AR', {
   day: '2-digit',
   month: '2-digit',

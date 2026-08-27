@@ -38,8 +38,12 @@ export function ExchangeDetailPanel({ exchangeId }: { exchangeId: number }) {
     }
   }
 
-  const paidTotal = exchange.payments.reduce((sum, payment) => sum + payment.amount, 0)
-  const waived = exchange.balance - paidTotal
+  // Same string-vs-number API quirk as SalesHistoryPage.tsx's ExchangeCashRow
+  // — `payment.amount` is a JSON string at runtime, so bare `+` would
+  // string-concatenate and turn `waived` into NaN (which then always shows
+  // a bogus "No reembolsado" row, since `NaN !== 0` is always true).
+  const paidTotal = exchange.payments.reduce((sum, payment) => sum + Number(payment.amount), 0)
+  const waived = Number(exchange.balance) - paidTotal
 
   return (
     <div className="grid gap-4">

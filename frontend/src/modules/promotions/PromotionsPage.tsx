@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Info, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Info, Pencil, Power, PowerOff, Trash2, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,7 +25,7 @@ import {
   useUpdatePromotion,
 } from '@/hooks/usePromotions'
 import { promotionApi } from '@/api/promotion'
-import type { DiscountType, PromotionItemInput } from '@/api/promotion'
+import type { DiscountType, PromotionItemInput, PromotionRead } from '@/api/promotion'
 import { PromotionDetail } from '@/modules/promotions/PromotionDetail'
 
 interface DraftItem extends PromotionItemInput {
@@ -60,6 +60,8 @@ export function PromotionsPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [items, setItems] = useState<DraftItem[]>([])
+  const [active, setActive] = useState(true)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
   const [targetPriceMode, setTargetPriceMode] = useState(false)
   const [targetPrice, setTargetPrice] = useState(0)
   const [distribution, setDistribution] = useState<'percentage' | 'equal'>('percentage')
@@ -72,6 +74,7 @@ export function PromotionsPage() {
     setStartDate(new Date().toISOString().slice(0, 10))
     setEndDate('')
     setItems([emptyItem()])
+    setActive(true)
     setTargetPriceMode(false)
     setTargetPrice(0)
     setDistribution('percentage')
@@ -96,6 +99,7 @@ export function PromotionsPage() {
         max_quantity: item.max_quantity ?? undefined,
       })),
     )
+    setActive(promotion.active)
     setTargetPriceMode(false)
     setTargetPrice(0)
     setDistribution('percentage')
@@ -167,7 +171,7 @@ export function PromotionsPage() {
       name,
       start_date: startDate,
       end_date: endDate || null,
-      active: true,
+      active,
       items: items.map((item) => ({
         product_id: item.targetType === 'product' ? item.product_id : null,
         category_id: item.targetType === 'category' ? item.category_id : null,
@@ -188,6 +192,38 @@ export function PromotionsPage() {
       setOpen(false)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
+    }
+  }
+
+  // Toggles active without opening the full edit dialog — refetches the
+  // promotion's own items first since PUT replaces them wholesale (same
+  // shape as openEditDialog/handleSubmit) and only flips `active`.
+  async function handleToggleActive(promotion: PromotionRead) {
+    setTogglingId(promotion.id)
+    try {
+      const detail = await promotionApi.getById(promotion.id)
+      await updateMutation.mutateAsync({
+        id: promotion.id,
+        payload: {
+          name: detail.name,
+          start_date: detail.start_date,
+          end_date: detail.end_date,
+          active: !detail.active,
+          items: detail.items.map((item) => ({
+            product_id: item.product_id,
+            category_id: item.category_id,
+            discount_type: item.discount_type,
+            discount_value: item.discount_value,
+            min_quantity: item.min_quantity,
+            max_quantity: item.max_quantity ?? undefined,
+          })),
+        },
+      })
+      toast.success(detail.active ? 'Promoción desactivada' : 'Promoción activada')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -240,6 +276,15 @@ export function PromotionsPage() {
                     <p className="text-xs text-muted-foreground">Dejar vacío para sin fecha límite</p>
                   </div>
                 </div>
+
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={(event) => setActive(event.target.checked)}
+                  />
+                  Activa
+                </label>
 
                 <div className="grid gap-2 rounded-md border p-3">
                   <label className="flex items-center gap-2 text-sm">
@@ -440,6 +485,19 @@ export function PromotionsPage() {
                   <TableCell className="flex justify-end gap-1">
                     <Button variant="ghost" size="icon" onClick={() => setDetailId(promotion.id)}>
                       <Info className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title={promotion.active ? 'Desactivar' : 'Activar'}
+                      disabled={togglingId === promotion.id}
+                      onClick={() => handleToggleActive(promotion)}
+                    >
+                      {promotion.active ? (
+                        <PowerOff className="size-4" />
+                      ) : (
+                        <Power className="size-4" />
+                      )}
                     </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEditDialog(promotion.id)}>
                       <Pencil className="size-4" />

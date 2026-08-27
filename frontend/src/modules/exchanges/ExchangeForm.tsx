@@ -348,6 +348,16 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
             >
               Hoja A4
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (pendingReceipt) downloadExchangeReceiptPdf(pendingReceipt, 'a6')
+                setPendingReceipt(null)
+                onSuccess()
+              }}
+            >
+              A6
+            </Button>
             <AlertDialogAction
               onClick={() => {
                 if (pendingReceipt) downloadExchangeReceiptPdf(pendingReceipt, 'thermal')

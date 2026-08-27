@@ -41,7 +41,7 @@ export function LoginPage() {
     <div className="flex min-h-svh items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <img src={logoUrl} alt="" className="size-10" />
+          <img src={logoUrl} alt="" className="size-10 mx-auto" />
           <CardTitle className="text-lg">{companyName}</CardTitle>
         </CardHeader>
         <CardContent>

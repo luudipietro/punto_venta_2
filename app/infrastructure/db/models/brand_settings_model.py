@@ -1,4 +1,4 @@
-from sqlalchemy import String
+from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.db.base import Base
@@ -14,3 +14,6 @@ class BrandSettingsModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
     logo_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    # {"light": {...}, "dark": {...}} of CSS color strings — None means "use
+    # the static brandConfig.colors defaults" (see brand.config.ts).
+    colors: Mapped[dict | None] = mapped_column(JSON, nullable=True)

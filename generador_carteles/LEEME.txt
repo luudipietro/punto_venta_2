@@ -1,0 +1,60 @@
+GENERADOR DE CARTELES DE PRECIO - REMODEL
+===========================================
+
+QUE HACE
+--------
+Te pide por consola el tamaño de cartel que querés usar, y después
+los productos (nombre, precio, si tiene detalle y cuántos carteles
+querés imprimir de cada uno). Arma un PDF en A4 con líneas de corte,
+listo para imprimir.
+
+TAMAÑOS DISPONIBLES
+--------------------
+  1) A4 completo   -> 1 cartel por hoja
+  2) Horizontal      -> 2 carteles por hoja
+  3) A6 clásico       -> 4 carteles por hoja
+  4) Chico              -> 16 carteles por hoja (grilla 4x4)
+
+CÓMO USARLO (Windows)
+----------------------
+1. Asegurate de tener Python instalado (https://www.python.org/downloads/).
+   Al instalarlo, tildá la casilla "Add Python to PATH".
+2. Hacé doble clic en "Generar Carteles.bat".
+   - La primera vez puede tardar unos segundos instalando la librería
+     "reportlab" automáticamente.
+3. Se abre una consola que primero te pregunta el tamaño de cartel
+   (opción 1 a 4) y después, producto por producto:
+     - Nombre del producto
+     - Precio
+     - Si tiene detalle/condición (s/n) y cuál
+     - Cuántos carteles imprimir de ese producto
+4. Cuando terminaste de cargar productos, dejá el nombre vacío y
+   presioná ENTER.
+5. El PDF se guarda automáticamente en la misma carpeta, con el
+   nombre "carteles_precio_FECHA_HORA.pdf".
+
+CÓMO USARLO (Mac / Linux)
+---------------------------
+1. Instalá Python 3 si no lo tenés.
+2. Abrí una terminal en esta carpeta y ejecutá:
+     pip install reportlab
+     python3 generar_carteles.py
+
+ARCHIVOS
+--------
+- generar_carteles.py   -> el script (no lo muevas de la carpeta)
+- Generar Carteles.bat  -> acceso directo para Windows (doble clic)
+- fuentes/              -> tipografía Poppins usada en los carteles
+                            (no la borres ni la muevas)
+- LEEME.txt             -> este instructivo
+
+TIPOGRAFÍA
+----------
+Los carteles usan la fuente "Poppins" (moderna, geométrica, de uso
+libre - Google Fonts / SIL Open Font License). Se incluye en la
+carpeta "fuentes" y se inserta directamente en cada PDF, así que
+los carteles se ven igual sin importar qué PC los abra o imprima.
+
+Cualquier cambio de colores, tipografía o layout se hace editando
+las primeras líneas de "generar_carteles.py" (sección "Configuración
+visual").

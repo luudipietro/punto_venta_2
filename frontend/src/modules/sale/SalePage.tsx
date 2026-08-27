@@ -218,6 +218,15 @@ export function SalePage() {
             >
               Hoja A4
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (pendingReceipt) downloadReceiptPdf(pendingReceipt, 'a6')
+                setPendingReceipt(null)
+              }}
+            >
+              A6
+            </Button>
             <AlertDialogAction
               onClick={() => {
                 if (pendingReceipt) downloadReceiptPdf(pendingReceipt, 'thermal')
