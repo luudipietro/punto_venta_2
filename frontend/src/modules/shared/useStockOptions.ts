@@ -11,6 +11,8 @@ export interface StockOption {
   productName: string
   price: number
   variantLabel: string
+  colorName: string | null
+  sizeLabel: string | null
   colorHex: string | null
   imageUrl: string | null
   label: string
@@ -45,10 +47,8 @@ export function useStockOptions(branchId?: number | null) {
         const product = productById.get(stock.product_id)
         if (!product) return null
         const color = stock.color_id !== null ? colorById.get(stock.color_id) : undefined
-        const variantParts = [
-          color?.name,
-          stock.size_id !== null ? sizeById.get(stock.size_id)?.label : null,
-        ].filter(Boolean)
+        const sizeLabel = stock.size_id !== null ? sizeById.get(stock.size_id)?.label ?? null : null
+        const variantParts = [color?.name, sizeLabel].filter(Boolean)
         const variantLabel = variantParts.join(' / ')
         const label = variantLabel ? `${product.name} (${variantLabel})` : product.name
         return {
@@ -58,6 +58,8 @@ export function useStockOptions(branchId?: number | null) {
           productName: product.name,
           price: product.price,
           variantLabel,
+          colorName: color?.name ?? null,
+          sizeLabel,
           colorHex: color?.hex_code ?? null,
           imageUrl: product.image_url,
           label,

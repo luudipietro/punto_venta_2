@@ -21,6 +21,7 @@ import { UsersPage } from '@/modules/users/UsersPage'
 import { BrandSettingsPage } from '@/modules/settings/BrandSettingsPage'
 import { AuditLogPage } from '@/modules/admin/AuditLogPage'
 import { FinanceDashboardPage } from '@/modules/dashboard/FinanceDashboardPage'
+import { PriceTagsPage } from '@/modules/pricetags/PriceTagsPage'
 
 export function AppRoutes() {
   return (
@@ -47,6 +48,7 @@ export function AppRoutes() {
             <Route path="/catalogo/usuarios" element={<UsersPage />} />
             <Route path="/catalogo/trazabilidad" element={<AuditLogPage />} />
             <Route path="/finanzas" element={<FinanceDashboardPage />} />
+            <Route path="/carteles" element={<PriceTagsPage />} />
             <Route path="/configuracion" element={<BrandSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/venta" replace />} />

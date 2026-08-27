@@ -693,18 +693,92 @@ Confirming a sale is now a two-step dialog flow in `SalePage.tsx`, not a single 
 dialog's "Confirmar" actually calls `createSaleMutation`. On success, a second `AlertDialog` asks
 whether to download a PDF receipt — the receipt's line-item/customer data is snapshotted from the
 cart's `lines`/`preview`/`selectedCustomer` state **before** `clear()` empties the cart, since
-there's no other cheap way to re-fetch "what was just sold" after the store resets.
+there's no other cheap way to re-fetch "what was just sold" after the store resets. Same pattern in
+`ExchangeForm.tsx` for a Cambio/Devolución — the receipt-prompt `AlertDialog` calls the shared
+`onSuccess` callback (which the parent uses to close/reset) only once the receipt dialog itself is
+dismissed, not immediately after the mutation succeeds, since the parent closing/unmounting the form
+right away would take the receipt prompt down with it before the cashier ever saw it.
 
 `frontend/src/lib/receipt.ts` (new **`jspdf`** dependency — chosen for being client-side, no backend
 round-trip and no new Python PDF library, and for staying light: `html2canvas`/`dompurify`, which
 `jspdf` pulls in for its unused `.html()` rendering API, end up in separate lazy-loaded chunks that
-are never fetched since this code only uses `jsPDF`'s plain text/line drawing) builds an **80mm
-thermal-ticket-style** receipt, not an A4 invoice: monospace (`courier`) font, dashed-line
-separators, page height computed from the item count instead of a fixed size, itemized
-product/variant/qty/unit-price/subtotal lines, subtotal/discount/promotion-discount/total, and a
-footer noting "Este comprobante no es una factura" (it's explicitly a proof-of-purchase, not a
-fiscal invoice). `downloadReceiptPdf(input)` triggers the browser's native file-save directly — no
-server involvement, no temp file.
+are never fetched since this code only uses `jsPDF`'s plain text/line drawing) builds an
+**80mm-wide ticket-style** receipt, not an A4 invoice: monospace (`courier`) font, dashed-line
+separators, itemized product/variant/qty/unit-price/subtotal lines, subtotal/discount/promotion-
+discount/total, and a footer noting "Este comprobante no es una factura" (it's explicitly a
+proof-of-purchase, not a fiscal invoice). A shared `Ticket` class centers the same 80mm-wide content
+column either on its own 80mm-tall roll (`format: 'thermal'`, height computed from the item count)
+or on a full A4 sheet (`format: 'a4'`, offset horizontally so the rest of the page is blank) — the
+**A4 option exists specifically for a shop without a thermal printer**: same ticket look, just
+printable on any regular printer instead of needing 80mm roll paper. Both `buildReceiptPdf`
+(Sale) and `buildExchangeReceiptPdf` (Cambio/Devolución, `A PAGAR`/`A REINTEGRAR` instead of a
+flat total, sign-prefixed returned-item lines) share this `Ticket` helper; `downloadReceiptPdf`/
+`downloadExchangeReceiptPdf` trigger the browser's native file-save directly — no server
+involvement, no temp file.
+
+- **Item variant reads "Talle L"/"Color Rojo", not a bare "L"** — `SaleCatalogEntry`/`StockOption`
+  (`useSaleCatalog.ts`/`useStockOptions.ts`) now expose `colorName`/`sizeLabel` separately (not just
+  the pre-joined `variantLabel` used for on-screen picker/dropdown display), and
+  `formatVariantForReceipt(colorName, sizeLabel)` in `lib/receipt.ts` prefixes each part before it
+  ever reaches a receipt — fixes a real bug found in manual testing where a size label alone (e.g.
+  "3") read like a quantity on the printed ticket. `cartStore.CartLine` carries `colorName`/
+  `sizeLabel` through from `ProductPicker.tsx`'s `addVariant` for this reason.
+- **Receipt header order is Fecha → Hora → Total → Cliente → Venta #N** (deliberately, per explicit
+  feedback) — the sale/exchange number is the *last* thing printed at the top, not the headline; a
+  cashier scanning the ticket cares about the date/amount/customer first.
+- **Card-surcharge-aware total**: `ReceiptInput`/`ExchangeReceiptInput` optionally carry `payments:
+  {methodName, amount}[]` (the *gross*, `amount_with_surcharge` figures, same ones `PaymentPanel.tsx`
+  already collects) — `lib/receipt.ts`'s `grossTotal()` sums them and, if that differs from the
+  sale's own net total, prints a separate `Recargo (<método>)` line and makes the printed `TOTAL`
+  match what was *actually charged* (the gross amount), not the pre-surcharge sale total. This
+  directly answers "what do we show when paid by card" — rather than repricing every line item, the
+  surcharge shows up as its own transparent line.
+- **`ProductPicker.tsx` shows the variant on the card when only one is left in stock** — previously
+  a product's card only showed "N variantes disponibles" when there was more than one; with exactly
+  one remaining stock row, nothing hinted which variant that was until it landed in the cart. Now
+  the single variant's label (plus its color swatch, if any) renders directly under the product name.
+
+## Price tag generator
+
+`generador_carteles/` (repo root) is a **standalone, unrelated** Python/reportlab CLI script built
+for one specific past client — console-driven, hardcoded branding, not read from this system at
+all. `/carteles` (admin-only) is the in-app equivalent: pick products **already loaded with a price**
+in this POS, set a copy count (and an optional free-text "detalle") per product, choose a sheet
+layout, and get a PDF — using *this* system's logo/company name, not a hardcoded one.
+
+- `frontend/src/lib/priceTags.ts` (client-side `jsPDF`, same no-backend approach as `receipt.ts`)
+  ports the reference script's text-fit algorithm (`_armar_lineas`/`_partir_por_caracteres` →
+  `wrapLines`/`splitByChars`/`fitText`: shrink-the-font-until-it-fits, falling back to splitting a
+  single too-wide word character-by-character only as a last resort) and its 4 sheet layouts (1/2/4/16
+  tags per A4 sheet, chosen by rows×cols) to TypeScript, generalized to use the app's own branding
+  instead of one hardcoded company.
+- **Reuses the Poppins `.ttf` files already sitting in `generador_carteles/fuentes/`** (bundled,
+  libre-licensed) — copied to `frontend/public/fonts/`, fetched and registered into jsPDF at
+  generation time via `addFileToVFS`/`addFont`, falling back to Helvetica if that fails for any
+  reason (offline, blocked request) — same never-break-the-generator philosophy the source script
+  already had for its own font fallback.
+- **Logo**: rasterized onto an off-screen `<canvas>` and embedded as a PNG (`jsPDF.addImage` can't
+  place an SVG directly) — resolves to `null`, and is skipped, on any load/draw failure, the same
+  graceful-degradation convention used for product images elsewhere (`onError` hides broken `<img>`s).
+- **Color**: `brandConfig.colors.light.primary` (an `oklch(...)` string) is resolved to an RGB triplet
+  jsPDF can use by setting a throwaway element's `color` to that exact string and reading back
+  `getComputedStyle(...).color` — lets the browser do the color-space conversion instead of writing
+  one by hand. Always the **light** palette regardless of the shop's current UI theme, since a
+  printed tag should look the same either way.
+- **Gotcha found the hard way: `jsPDF.setFontSize()` always takes points, never the document's own
+  unit.** Every measurement in this file is otherwise in millimeters (matching `receipt.ts`'s
+  convention), so the very first version of this feature fed mm-scale numbers straight into
+  `setFontSize()` — text rendered ~2.8x smaller than intended, with the sheet mostly blank
+  (reported as "the text is tiny, we're not using the space"). Fixed by converting to points
+  (`MM_TO_PT = 2.8346456693`) at exactly the two points that call into jsPDF's font APIs
+  (`textWidth()`, `setFontSizeMm()`) — every other calculation (positions, wrap widths, margins)
+  stays in mm untouched. Watch for this same trap in any future jsPDF-based feature: `getTextWidth()`
+  returns a value in the *document's* unit, but `setFontSize()` never does.
+- `frontend/src/modules/pricetags/PriceTagsPage.tsx` — a plain table over `useProducts()` (name
+  filter, same substring pattern as `ProductPicker.tsx`) with an inline "Cantidad" and "Detalle"
+  input per row; the detail text is ephemeral UI state only, never persisted (`Product` gains no new
+  field). A running "N carteles — M hojas A4" summary mirrors the source script's own console
+  summary before generating.
 
 ## Database
 
@@ -887,8 +961,8 @@ Notable frontend-specific decisions, in case they look surprising:
   something that should collapse to "only my branch."
 - **Admin-only nav items are hidden, not just route-guarded**: `Layout.tsx`'s `catalogNav` array
   (Categorías/Marcas/Colores/Talles/Sucursales/Métodos de pago/Usuarios/Configuración) and a separate
-  `adminNav` array (Finanzas/Trazabilidad — kept apart from `catalogNav` since they aren't catalog
-  CRUD screens) only render when `role === 'admin'` — an empleado never sees these links at all, and
+  `adminNav` array (Finanzas/Trazabilidad/Carteles de precio — kept apart from `catalogNav` since
+  they aren't catalog CRUD screens) only render when `role === 'admin'` — an empleado never sees these links at all, and
   navigating to one of those URLs directly redirects to `/venta` via the `RequireAdmin` route wrapper
   (`routes.tsx` nests those routes' `<Route>`s inside `<Route element={<RequireAdmin/>}>`, itself
   inside `<Route element={<RequireAuth/>}>` — both wrappers just render `<Outlet/>` or `<Navigate/>`

@@ -20,7 +20,7 @@ import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { netAmountFor, summarizePayments } from '@/lib/payment'
 import { formatCurrency } from '@/lib/format'
-import { downloadReceiptPdf, type ReceiptInput } from '@/lib/receipt'
+import { downloadReceiptPdf, formatVariantForReceipt, type ReceiptInput } from '@/lib/receipt'
 import { brandConfig } from '@/theme/brand.config'
 import { useAuthStore } from '@/stores/authStore'
 import { useCartStore } from '@/modules/sale/cartStore'
@@ -119,7 +119,7 @@ export function SalePage() {
         createdAt: new Date(),
         items: lines.map((line) => ({
           name: line.productName,
-          variant: line.variantLabel,
+          variant: formatVariantForReceipt(line.colorName, line.sizeLabel),
           quantity: line.quantity,
           unitPrice: line.unitPrice,
         })),
@@ -128,6 +128,11 @@ export function SalePage() {
         promotionDiscount: preview.promotion_discount,
         total: preview.total,
         customerName: selectedCustomer?.name ?? null,
+        payments: payments.map((line) => ({
+          methodName:
+            paymentMethods?.find((method) => method.id === line.paymentMethodId)?.name ?? '',
+          amount: line.amount,
+        })),
       })
       clear()
       setPayments([])
@@ -198,17 +203,28 @@ export function SalePage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Venta registrada</AlertDialogTitle>
-            <AlertDialogDescription>¿Querés descargar el comprobante en PDF?</AlertDialogDescription>
+            <AlertDialogDescription>
+              ¿Querés descargar el comprobante en PDF? Elegí el formato según tu impresora.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>No, gracias</AlertDialogCancel>
-            <AlertDialogAction
+            <Button
+              variant="outline"
               onClick={() => {
-                if (pendingReceipt) downloadReceiptPdf(pendingReceipt)
+                if (pendingReceipt) downloadReceiptPdf(pendingReceipt, 'a4')
                 setPendingReceipt(null)
               }}
             >
-              Descargar recibo
+              Hoja A4
+            </Button>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReceipt) downloadReceiptPdf(pendingReceipt, 'thermal')
+                setPendingReceipt(null)
+              }}
+            >
+              Térmica 80mm
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

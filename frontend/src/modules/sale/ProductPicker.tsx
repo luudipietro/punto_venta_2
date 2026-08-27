@@ -57,6 +57,8 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
       productId: entry.productId,
       productName: entry.productName,
       variantLabel: entry.variantLabel,
+      colorName: entry.colorName,
+      sizeLabel: entry.sizeLabel,
       imageUrl: entry.imageUrl,
       unitPrice: entry.unitPrice,
       availableQuantity: entry.availableQuantity,
@@ -103,10 +105,22 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                   <div className="aspect-square w-full rounded-md border bg-muted" />
                 )}
                 <p className="truncate text-sm font-medium leading-tight">{group.productName}</p>
-                {group.variants.length > 1 && (
+                {group.variants.length > 1 ? (
                   <p className="text-xs text-muted-foreground">
                     {group.variants.length} variantes disponibles
                   </p>
+                ) : (
+                  group.variants[0].variantLabel && (
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      {group.variants[0].colorHex && (
+                        <span
+                          className="size-2.5 shrink-0 rounded-full border"
+                          style={{ backgroundColor: group.variants[0].colorHex }}
+                        />
+                      )}
+                      {group.variants[0].variantLabel}
+                    </p>
+                  )
                 )}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">{formatCurrency(group.unitPrice)}</span>

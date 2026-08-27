@@ -9,6 +9,8 @@ export interface SaleCatalogEntry {
   productId: number
   productName: string
   variantLabel: string
+  colorName: string | null
+  sizeLabel: string | null
   colorHex: string | null
   imageUrl: string | null
   unitPrice: number
@@ -39,15 +41,15 @@ export function useSaleCatalog(branchId: number | null) {
         const product = productById.get(stock.product_id)
         if (!product) return null
         const color = stock.color_id !== null ? colorById.get(stock.color_id) : undefined
-        const variantParts = [
-          color?.name,
-          stock.size_id !== null ? sizeById.get(stock.size_id)?.label : null,
-        ].filter(Boolean)
+        const sizeLabel = stock.size_id !== null ? sizeById.get(stock.size_id)?.label ?? null : null
+        const variantParts = [color?.name, sizeLabel].filter(Boolean)
         return {
           stockId: stock.id,
           productId: product.id,
           productName: product.name,
           variantLabel: variantParts.join(' / '),
+          colorName: color?.name ?? null,
+          sizeLabel,
           colorHex: color?.hex_code ?? null,
           imageUrl: product.image_url,
           unitPrice: product.price,

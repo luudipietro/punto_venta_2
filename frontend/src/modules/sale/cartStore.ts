@@ -6,6 +6,8 @@ export interface CartLine {
   productName: string
   /** e.g. "Negro / M", or "" when the product has no color/size variety. */
   variantLabel: string
+  colorName: string | null
+  sizeLabel: string | null
   imageUrl: string | null
   unitPrice: number
   quantity: number

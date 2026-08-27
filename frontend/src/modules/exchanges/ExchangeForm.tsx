@@ -1,12 +1,26 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useCreateExchange } from '@/hooks/useExchanges'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
+import { useCustomer } from '@/hooks/useCustomers'
+import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { formatCurrency } from '@/lib/format'
+import { downloadExchangeReceiptPdf, formatVariantForReceipt, type ExchangeReceiptInput } from '@/lib/receipt'
+import { brandConfig } from '@/theme/brand.config'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
 import type { SaleDetailRead } from '@/api/sale'
 import type { ExchangeItemInput, ExchangePaymentInput } from '@/api/exchange'
@@ -42,11 +56,15 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
   // Unfiltered: resolves the already-sold stock_ids for display, regardless
   // of which branch that stock currently reports (see useStockOptions docs).
   const { options: allStockOptions } = useStockOptions()
+  const { data: customer } = useCustomer(sale.customer_id ?? undefined)
+  const { data: brand } = useBrandSettings()
+  const companyName = brand?.company_name ?? brandConfig.companyName
 
   const [returns, setReturns] = useState<ReturnDraft[]>([])
   const [newItems, setNewItems] = useState<NewItemDraft[]>([])
   const [payments, setPayments] = useState<PaymentDraft[]>([])
   const [waiveRefund, setWaiveRefund] = useState(false)
+  const [pendingReceipt, setPendingReceipt] = useState<ExchangeReceiptInput | null>(null)
 
   const returnedTotal = returns.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
   const newTotal = newItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
@@ -91,7 +109,7 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
 
   async function handleSubmit() {
     try {
-      await createMutation.mutateAsync({
+      const exchange = await createMutation.mutateAsync({
         sale_id: sale.id,
         returned_items: returns.map(({ stock_id, quantity, unit_price }) => ({
           stock_id,
@@ -103,7 +121,37 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
         waive_refund: canWaiveRefund && waiveRefund,
       })
       toast.success('Cambio/devolución registrado')
-      onSuccess()
+      setPendingReceipt({
+        companyName,
+        exchangeId: exchange.id,
+        saleId: sale.id,
+        createdAt: new Date(),
+        returnedItems: returns.map((item) => {
+          const option = allStockOptions.find((entry) => entry.stockId === item.stock_id)
+          return {
+            name: option?.productName ?? `Stock #${item.stock_id}`,
+            variant: formatVariantForReceipt(option?.colorName, option?.sizeLabel),
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+          }
+        }),
+        newItems: newItems.map((item) => {
+          const option = stockOptions.find((entry) => entry.stockId === item.stock_id)
+          return {
+            name: option?.productName ?? `Stock #${item.stock_id}`,
+            variant: formatVariantForReceipt(option?.colorName, option?.sizeLabel),
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+          }
+        }),
+        balance,
+        customerName: customer?.name ?? null,
+        payments: payments.map((payment) => ({
+          methodName:
+            paymentMethods?.find((method) => method.id === payment.payment_method_id)?.name ?? '',
+          amount: payment.amount,
+        })),
+      })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
     }
@@ -271,6 +319,47 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
       <Button onClick={handleSubmit} disabled={!canSubmit || createMutation.isPending} className="w-fit">
         Registrar cambio/devolución
       </Button>
+
+      <AlertDialog
+        open={pendingReceipt !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setPendingReceipt(null)
+            onSuccess()
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cambio/devolución registrado</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Querés descargar el comprobante en PDF? Elegí el formato según tu impresora.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, gracias</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (pendingReceipt) downloadExchangeReceiptPdf(pendingReceipt, 'a4')
+                setPendingReceipt(null)
+                onSuccess()
+              }}
+            >
+              Hoja A4
+            </Button>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingReceipt) downloadExchangeReceiptPdf(pendingReceipt, 'thermal')
+                setPendingReceipt(null)
+                onSuccess()
+              }}
+            >
+              Térmica 80mm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

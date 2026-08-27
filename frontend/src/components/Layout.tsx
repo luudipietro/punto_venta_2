@@ -14,6 +14,7 @@ import {
   Ruler,
   Settings,
   ShoppingCart,
+  Sticker,
   Store,
   Sun,
   Tag,
@@ -62,6 +63,7 @@ const catalogNav = [
 const adminNav = [
   { to: '/finanzas', label: 'Finanzas', icon: LineChart },
   { to: '/catalogo/trazabilidad', label: 'Trazabilidad', icon: History },
+  { to: '/carteles', label: 'Carteles de precio', icon: Sticker },
 ]
 
 function NavItem({ to, label, icon: Icon }: { to: string; label: string; icon: typeof ShoppingCart }) {
