@@ -2,6 +2,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.media import delete_media_file
 from app.domain.product_image import ProductImage
 from app.infrastructure.db.session import get_db
 from app.repositories.product_image_repository import (
@@ -40,6 +41,7 @@ class ProductImageService:
                 f"La imagen {image_id} no pertenece al producto {product_id}"
             )
         await self._repository.delete(image_id)
+        delete_media_file(image.url)
 
 
 def get_product_image_service(session: AsyncSession = Depends(get_db)) -> ProductImageService:

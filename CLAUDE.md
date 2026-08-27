@@ -439,6 +439,17 @@ API. The original domain model is now fully covered.
   `StaticFiles` mount at `Settings.media_url` in `app/main.py`) is a separate step from attaching
   that URL to a product's cover (`PUT /products/{id}`) or gallery (`POST /products/{id}/images`) —
   the upload endpoint doesn't know or care which entity the image ends up on.
+- **Replacing or removing an image now deletes the old file from disk, not just the DB row** —
+  `app/core/media.py`'s `delete_media_file(url)` (best-effort, silently no-ops on `None`, a static
+  frontend asset like the default `/brand/logo.svg`, or a file already missing) is called from
+  `ProductService.update` (when `image_url` actually changes, comparing against the pre-update row),
+  `ProductService.delete`, `ProductImageService.remove_image`, and `BrandSettingsService.update`
+  (logo replacement). Found as a real, already-in-effect problem during a hosting capacity review,
+  not a hypothetical: nothing anywhere ever deleted the physical file on a replace/remove/delete —
+  in this project's own dev `media/products/` folder, 12 of 15 files on disk were already orphaned
+  (unreferenced by any product) purely from routine testing. Not urgent at typical volumes (disk math
+  in the capacity review put it at tens of MB/year of extra orphaned bytes even unfixed), but it grew
+  without any bound, so it's fixed now rather than left as a known limitation.
 - **Purchase** mirrors Sale but increases stock instead of decreasing it (`PurchaseService.
   create_purchase` calls `StockService.increase_quantity` per item, and also overwrites
   `Product.cost` with each item's `unit_cost` — "last purchase cost wins" if a purchase has

@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessRuleViolationError, EntityNotFoundError
+from app.core.media import delete_media_file
 from app.domain.product import Product
 from app.infrastructure.db.session import get_db
 from app.repositories.brand_repository import BrandRepository, SqlAlchemyBrandRepository
@@ -30,9 +31,19 @@ class ProductService(CrudService[Product]):
 
     async def update(self, entity_id: int, product: Product) -> Product:
         await self._ensure_references_exist(product)
-        return await super().update(entity_id, product)
+        previous = await self.get_by_id(entity_id)
+        updated = await super().update(entity_id, product)
+        # Cleanup after the write succeeds, and only when the cover photo
+        # actually changed — an uploaded file is otherwise never deleted by
+        # anything (see CLAUDE.md's Security/Storage notes), so a product
+        # that gets re-photographed a dozen times would otherwise leave a
+        # dozen orphaned files behind forever.
+        if previous.image_url and previous.image_url != updated.image_url:
+            delete_media_file(previous.image_url)
+        return updated
 
     async def delete(self, entity_id: int) -> None:
+        product = await self.get_by_id(entity_id)
         try:
             await super().delete(entity_id)
         except IntegrityError as exc:
@@ -40,6 +51,7 @@ class ProductService(CrudService[Product]):
                 "No se puede eliminar: este producto tiene stock, imágenes, ventas o "
                 "compras asociadas"
             ) from exc
+        delete_media_file(product.image_url)
 
     async def _ensure_references_exist(self, product: Product) -> None:
         if product.category_id is not None:

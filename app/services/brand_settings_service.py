@@ -1,6 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.media import delete_media_file
 from app.domain.brand_settings import BrandSettings
 from app.infrastructure.db.session import get_db
 from app.repositories.brand_settings_repository import (
@@ -19,9 +20,13 @@ class BrandSettingsService:
         return await self._repository.get() or _DEFAULT
 
     async def update(self, company_name: str, logo_url: str, colors: dict | None = None) -> BrandSettings:
-        return await self._repository.upsert(
+        previous = await self._repository.get()
+        updated = await self._repository.upsert(
             BrandSettings(company_name=company_name, logo_url=logo_url, colors=colors)
         )
+        if previous and previous.logo_url != updated.logo_url:
+            delete_media_file(previous.logo_url)
+        return updated
 
 
 def get_brand_settings_service(
