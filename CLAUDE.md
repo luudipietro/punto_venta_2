@@ -970,6 +970,36 @@ sheet layout, and get a PDF — using *this* system's logo/company name, not a h
   persisted (`Product` gains no new field). A running "N carteles — M hojas A4" summary mirrors the
   source script's own console summary before generating.
 
+## Payment-method price preview
+
+`frontend/src/components/PricingDisplaySelector.tsx` — a payment-method `Select` shown in both
+`ProductPicker.tsx` (the sale screen) and `ProductsPage.tsx` (the catalog), letting an employee
+pick a payment method (e.g. a card with a surcharge) and see every product's price already
+recalculated with that method's `surcharge_percentage`, instead of doing the math by hand at
+checkout — a real request from the first client after testing the system in production.
+**Display-only, on purpose**: the selection never touches `cartStore`/`addLine`/checkout math —
+`ProductPicker.tsx`'s `addVariant` still sources `unitPrice` straight from
+`SaleCatalogEntry.unitPrice`, completely independent of this preview.
+
+- `frontend/src/stores/pricingDisplayStore.ts` — a small Zustand store, separate from
+  `authStore.ts` on purpose (different lifecycle: this must *not* reset on logout, unlike auth
+  state), using the same `persist` middleware pattern (own localStorage key,
+  `pos-pricing-display`) so the cashier picks a method once and it stays applied across both
+  screens and across page reloads — explicitly requested over two independent per-page selectors.
+- `frontend/src/lib/pricingDisplay.ts` — `resolveDisplayPrice(basePrice, selectedPaymentMethodId,
+  methods)` (wraps the existing `applySurcharge` from `lib/payment.ts`; a dangling persisted id —
+  a method deleted after being selected — silently falls back to the base price, no error state)
+  and `priceColorClass(method)`, which colors the displayed price amber
+  (`text-amber-600 dark:text-amber-400`) once a surcharge > 0 is actually applied, or emerald
+  (`text-emerald-600 dark:text-emerald-400`) for list price / a 0%-surcharge method — reusing the
+  exact amber/emerald "differs from base" vs. "ok" convention `PaymentPanel.tsx` already
+  established for its own remaining-balance indicator, per explicit user request for a fast visual
+  cue distinguishing recargo vs. no-recargo prices.
+- Both `ProductPicker.tsx` (card price) and `ProductsPage.tsx` (grid card price + the list view's
+  "Precio" table column) swap their `formatCurrency(...)` call for the resolved
+  price/color — the `Costo` column and the create/edit product form keep showing/editing the raw
+  base price unchanged, since that's the actual stored value.
+
 ## Database
 
 PostgreSQL via `asyncpg`, but all access goes through SQLAlchemy — no raw SQL, no engine-specific
@@ -1236,6 +1266,82 @@ Notable frontend-specific decisions, in case they look surprising:
   name despite the `CardHeader` already having `items-center text-center`. Fix: give the image its
   own `mx-auto` (or `justify-self-center`) — don't rely on a `text-*` alignment class centering
   anything that isn't text.
+
+## Production deployment
+
+Deployed to a DonWeb VPS (Ubuntu), multi-tenant: **one client = one isolated Docker Compose
+stack**, not one shared multi-tenant deployment (`Branch`/`acting_branch_id` already handles
+multiple *branches of the same business*; a separate client business gets a whole separate
+stack instead, for full isolation of data/secrets/uptime). As of this writing there are two live
+client instances (`punto_venta_2` = tienda1, `boutique_sa`), each following the exact same
+pattern below — a third client repeats it identically.
+
+- **Root `Dockerfile`** (`uv`-based): installs deps, copies `app/`/`alembic/`, and its `CMD` runs
+  `alembic upgrade head` before starting `uvicorn` — so every deploy applies pending migrations
+  automatically, no manual migration step on the server ever.
+- **`frontend/Dockerfile`**: multi-stage — `node:20-alpine` runs `npm run build` (with
+  `VITE_API_BASE_URL=/api` baked in as a build arg, since the frontend always talks to the API at
+  a same-origin relative path, never a hardcoded host), then the built `dist/` is copied into an
+  `nginx:1.27-alpine` image alongside `frontend/nginx.conf`, which proxies `/api/` and `/media/`
+  to the `backend` service (by Docker Compose service name) and serves everything else as the SPA
+  (`try_files $uri $uri/ /index.html`).
+- **`docker-compose.prod.yml`** (root) — 3 services: `postgres`, `backend` (depends on
+  `postgres`'s healthcheck), `frontend`. **No `container_name` on any service** — removed
+  deliberately after it caused a real collision the first time a second client instance tried to
+  start on the same host (Docker requires unique container names host-wide); letting Compose
+  derive names from the project directory, same as it already does for named volumes
+  (`pos_postgres_data`, `pos_media` — inspect with `docker volume ls`, mountpoint via
+  `docker volume inspect`), makes each per-client directory self-namespacing for free. The
+  `frontend` service binds to `127.0.0.1:${FRONTEND_PORT:-8081}:80` — **not** `0.0.0.0:80` —
+  because port 80/443 on the host is owned by a host-level Nginx (installed via `apt`, not
+  containerized) acting as the single internet-facing reverse proxy in front of every client's
+  container stack; each client gets its own `FRONTEND_PORT` (8081, 8082, 8083, ...) and its own
+  `/etc/nginx/sites-available/<subdomain>` block (`proxy_pass http://127.0.0.1:<port>`) plus its
+  own Let's Encrypt cert (`certbot --nginx -d <subdomain>`). This split (host Nginx terminates
+  TLS + routes by `server_name`; each container stack only ever exposes a host-only port) is what
+  makes adding a client purely additive — never touches an existing client's Nginx block or
+  containers.
+- **`.env.prod`** (per client, gitignored, `chmod 600`) — `POSTGRES_USER`/`POSTGRES_PASSWORD`/
+  `POSTGRES_DB`, `SECRET_KEY`, `SERVER_IP`, `DOMAIN`, `FRONTEND_PORT`. **`POSTGRES_PASSWORD` and
+  `SECRET_KEY` must be unique per client** — reusing either across instances would mean one
+  client's JWTs could authenticate against another's backend, or DB credentials could cross over.
+  `docker-compose.prod.yml` builds `CORS_ORIGINS` from `DOMAIN`/`SERVER_IP` and fails fast
+  (`:?set a real ... in .env.prod`) if `POSTGRES_PASSWORD`/`SECRET_KEY` are left unset — Compose
+  only reads this file when explicitly passed via `--env-file .env.prod` (it does **not**
+  auto-load a file named anything other than literally `.env`), so every compose command in this
+  project's deploy workflow includes that flag.
+- **New client checklist** (all on the server, under `~/apps/<client>/`): DNS `A` record for the
+  subdomain → server IP (in whichever registrar the client's domain uses) → `git clone` the repo
+  into a fresh directory (reuses the same read-only GitHub deploy key already installed on the
+  server, no new key needed) → new `.env.prod` from `.env.prod.example` with unique
+  `POSTGRES_PASSWORD`/`SECRET_KEY` and the next free `FRONTEND_PORT` → `docker compose -f
+  docker-compose.prod.yml --env-file .env.prod up -d --build` → new host Nginx site block +
+  `certbot --nginx -d <subdomain>` → its own backup script/cron entry (below) → log in as the
+  seeded `admin`/`admin123` and change the password immediately.
+- **Backups**: one `~/backups/backup_<client>.sh` per client (not shared — each hardcodes its own
+  `APP_DIR` and Docker volume name), run daily via a separate `crontab -e` line per client at a
+  staggered time (e.g. tienda1 at 3:00 AM, a second client at 3:30 AM) redirecting both stdout and
+  stderr to its own `.log` (`>> backup_<client>.log 2>&1` — dropping the `2>&1` silently loses
+  error visibility, since cron's default mail-on-error has no MTA configured on this box). Each
+  script `pg_dump`s the DB and `tar`s the `pos_media` Docker volume via a throwaway
+  `docker run --rm --user "$(id -u):$(id -g)" -v <volume>:/data ... alpine tar czf ...` — the
+  `--user` flag matters: without it the tar (and thus the output file on the host) ends up owned
+  by `root` since the Alpine container runs as root by default, which can silently break the
+  `find ... -delete` 30-day rotation running as the unprivileged `deploy` user. Backups currently
+  live only on the same VPS disk — copying them off-box (rclone to cloud storage, etc.) is a known
+  gap, not yet done.
+- **Deploying a change**: frontend-only → `... up -d --build frontend`; backend-only, no new
+  migration → `... up -d --build backend`; backend with a new Alembic migration → run
+  `~/backups/backup_<client>.sh` manually first, then `... up -d --build backend` and check
+  `docker compose ... logs backend | grep -i alembic` for the `Running upgrade ...` line (a
+  migration failure aborts the container's startup `&&` chain, so the site stays down until
+  fixed — this is why the pre-migration backup matters). None of this propagates automatically
+  across clients — repeat the same `git pull` + rebuild in every client's own directory.
+- **SSH access**: key-only (`PasswordAuthentication no`, `PermitRootLogin no`), non-standard port
+  (set at VPS provisioning time). Each person/device should have its **own** keypair appended to
+  `~/.ssh/authorized_keys` (never copy one private key across machines) so a lost device's access
+  can be revoked by deleting just its one line. `ufw` only allows SSH (the custom port), 80, 443 —
+  Postgres/backend/frontend container ports are never exposed beyond `127.0.0.1`.
 
 ## Known limitations / possible next steps
 
