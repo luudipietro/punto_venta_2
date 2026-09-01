@@ -24,7 +24,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pos}
       SECRET_KEY: ${SECRET_KEY:?set a real SECRET_KEY in .env.prod}
-      CORS_ORIGINS: '["http://localhost", "http://${SERVER_IP:-localhost}"]'
+      CORS_ORIGINS: '["https://${DOMAIN}", "http://${SERVER_IP:-localhost}"]'
     volumes:
       - pos_media:/app/media
     depends_on:
@@ -40,7 +40,7 @@ services:
     container_name: pos-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "127.0.0.1:${FRONTEND_PORT:-8081}:80"
     depends_on:
       - backend
 
