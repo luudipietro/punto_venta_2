@@ -9,8 +9,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { formatCurrency } from '@/lib/format'
+import { resolveDisplayPrice, priceColorClass } from '@/lib/pricingDisplay'
 import { useSaleCatalog, type SaleCatalogEntry } from '@/modules/sale/useSaleCatalog'
 import { useCartStore } from '@/modules/sale/cartStore'
+import { usePaymentMethods } from '@/hooks/usePaymentMethods'
+import { usePricingDisplayStore } from '@/stores/pricingDisplayStore'
+import { PricingDisplaySelector } from '@/components/PricingDisplaySelector'
 
 interface ProductGroup {
   productId: number
@@ -25,6 +29,8 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
   const [search, setSearch] = useState('')
   const { entries, isLoading } = useSaleCatalog(branchId)
   const addLine = useCartStore((state) => state.addLine)
+  const { data: paymentMethods } = usePaymentMethods()
+  const selectedPaymentMethodId = usePricingDisplayStore((s) => s.selectedPaymentMethodId)
 
   const groups = useMemo<ProductGroup[]>(() => {
     const byProduct = new Map<number, ProductGroup>()
@@ -71,12 +77,15 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
 
   return (
     <div>
-      <Input
-        placeholder="Buscar producto..."
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        className="mb-3"
-      />
+      <div className="mb-3 flex gap-2">
+        <Input
+          placeholder="Buscar producto..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="flex-1"
+        />
+        <PricingDisplaySelector />
+      </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando productos...</p>
@@ -85,6 +94,11 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
       ) : (
         <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
           {filtered.map((group) => {
+            const { price: displayPrice, method } = resolveDisplayPrice(
+              group.unitPrice,
+              selectedPaymentMethodId,
+              paymentMethods,
+            )
             const card = (
               <Card
                 role="button"
@@ -123,7 +137,9 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                   )
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{formatCurrency(group.unitPrice)}</span>
+                  <span className={`text-sm font-semibold ${priceColorClass(method)}`}>
+                    {formatCurrency(displayPrice)}
+                  </span>
                   <Badge variant="secondary">{group.totalAvailable} disp.</Badge>
                 </div>
               </Card>

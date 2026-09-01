@@ -20,9 +20,13 @@ import { useCategories } from '@/hooks/useCategories'
 import { useBrands } from '@/hooks/useBrands'
 import { useCreateProduct, useDeleteProduct, useProducts, useUpdateProduct } from '@/hooks/useProducts'
 import { formatCurrency } from '@/lib/format'
+import { resolveDisplayPrice, priceColorClass } from '@/lib/pricingDisplay'
 import { uploadProductImage } from '@/api/product'
 import type { ProductInput } from '@/api/product'
 import { ProductGallery } from '@/modules/products/ProductGallery'
+import { usePaymentMethods } from '@/hooks/usePaymentMethods'
+import { usePricingDisplayStore } from '@/stores/pricingDisplayStore'
+import { PricingDisplaySelector } from '@/components/PricingDisplaySelector'
 
 type ViewMode = 'list' | 'grid'
 
@@ -40,6 +44,8 @@ export function ProductsPage() {
   const { data: products, isLoading } = useProducts()
   const { data: categories } = useCategories()
   const { data: brands } = useBrands()
+  const { data: paymentMethods } = usePaymentMethods()
+  const selectedPaymentMethodId = usePricingDisplayStore((s) => s.selectedPaymentMethodId)
   const createMutation = useCreateProduct()
   const updateMutation = useUpdateProduct()
   const removeMutation = useDeleteProduct()
@@ -123,6 +129,7 @@ export function ProductsPage() {
         title="Productos"
         action={
           <div className="flex items-center gap-2">
+            <PricingDisplaySelector />
             <div className="flex overflow-hidden rounded-md border">
               <Button
                 type="button"
@@ -314,7 +321,13 @@ export function ProductsPage() {
       ) : viewMode === 'grid' ? (
         products?.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => (
+            {products.map((product) => {
+              const { price: gridDisplayPrice, method: gridMethod } = resolveDisplayPrice(
+                product.price,
+                selectedPaymentMethodId,
+                paymentMethods,
+              )
+              return (
               <Card key={product.id} className="gap-2 p-3">
                 {product.image_url ? (
                   <img
@@ -334,7 +347,9 @@ export function ProductsPage() {
                   {' · '}
                   {brands?.find((brand) => brand.id === product.brand_id)?.name ?? '-'}
                 </p>
-                <p className="text-sm font-semibold">{formatCurrency(product.price)}</p>
+                <p className={`text-sm font-semibold ${priceColorClass(gridMethod)}`}>
+                  {formatCurrency(gridDisplayPrice)}
+                </p>
                 <div className="flex justify-end gap-1">
                   <Button variant="ghost" size="icon" onClick={() => openEditDialog(product)}>
                     <Pencil className="size-4" />
@@ -344,7 +359,8 @@ export function ProductsPage() {
                   </Button>
                 </div>
               </Card>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <p className="text-center text-sm text-muted-foreground">Sin productos</p>
@@ -364,7 +380,13 @@ export function ProductsPage() {
           </TableHeader>
           <TableBody>
             {products?.length ? (
-              products.map((product) => (
+              products.map((product) => {
+                const { price: rowDisplayPrice, method: rowMethod } = resolveDisplayPrice(
+                  product.price,
+                  selectedPaymentMethodId,
+                  paymentMethods,
+                )
+                return (
                 <TableRow key={product.id}>
                   <TableCell>
                     {product.image_url ? (
@@ -386,7 +408,9 @@ export function ProductsPage() {
                   </TableCell>
                   <TableCell>{brands?.find((brand) => brand.id === product.brand_id)?.name ?? '-'}</TableCell>
                   <TableCell>{formatCurrency(product.cost)}</TableCell>
-                  <TableCell>{formatCurrency(product.price)}</TableCell>
+                  <TableCell className={priceColorClass(rowMethod)}>
+                    {formatCurrency(rowDisplayPrice)}
+                  </TableCell>
                   <TableCell className="flex justify-end gap-1">
                     <Button variant="ghost" size="icon" onClick={() => openEditDialog(product)}>
                       <Pencil className="size-4" />
@@ -396,7 +420,8 @@ export function ProductsPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))
+                )
+              })
             ) : (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground">
