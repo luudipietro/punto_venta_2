@@ -27,9 +27,11 @@ class BrandSettingsUpdate(BaseModel):
     company_name: str
     logo_url: str
     colors: BrandColors | None = None
+    whatsapp_number: str | None = None
 
 
 class BrandSettingsRead(BaseModel):
     company_name: str
     logo_url: str
     colors: BrandColors | None = None
+    whatsapp_number: str | None = None

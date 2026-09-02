@@ -19,6 +19,7 @@ from app.routes.report_route import router as report_router
 from app.routes.sale_route import router as sale_router
 from app.routes.size_route import router as size_router
 from app.routes.stock_route import router as stock_router
+from app.routes.storefront_route import router as storefront_router
 from app.routes.upload_route import router as upload_router
 from app.routes.user_route import router as user_router
 
@@ -47,6 +48,11 @@ api_router.include_router(promotion_router, dependencies=_auth_required)
 # to render the custom logo/company name before anyone is authenticated.
 # PUT is admin-only via its own route-level dependency (brand_settings_route.py).
 api_router.include_router(brand_settings_router)
+
+# Entirely public, no dependency — the customer-facing storefront (a
+# separate frontend, `storefront/`) has no login at all, it's a read-only
+# catalog that hands off to WhatsApp for the actual order.
+api_router.include_router(storefront_router)
 
 # Uniformly open to any logged-in user — branch-scoping for empleados is
 # enforced inside the service layer, not via router-level role gating.

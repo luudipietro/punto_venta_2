@@ -10,6 +10,8 @@ export interface Product {
   price: number
   description: string | null
   image_url: string | null
+  hidden_from_storefront: boolean
+  price_hidden_from_storefront: boolean
 }
 
 export interface ProductInput {
@@ -20,6 +22,8 @@ export interface ProductInput {
   price: number
   description?: string | null
   image_url?: string | null
+  hidden_from_storefront?: boolean
+  price_hidden_from_storefront?: boolean
 }
 
 export const productApi = createCrudApi<Product, ProductInput>('products')

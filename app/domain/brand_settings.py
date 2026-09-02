@@ -10,4 +10,7 @@ class BrandSettings:
     # plain dict rather than a nested dataclass — it's presentation data,
     # not a business invariant this layer needs to validate.
     colors: dict | None = None
+    # E.164-ish digits only (e.g. "5491122334455"), no "+" — this is what
+    # gets interpolated directly into a wa.me/<number> link on the storefront.
+    whatsapp_number: str | None = None
     id: int = 1

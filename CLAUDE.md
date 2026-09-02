@@ -1000,6 +1000,81 @@ checkout — a real request from the first client after testing the system in pr
   price/color — the `Costo` column and the create/edit product form keep showing/editing the raw
   base price unchanged, since that's the actual stored value.
 
+## Public storefront (WhatsApp catalog)
+
+`storefront/` is a **second, separate** React/Vite app (not a page inside `frontend/`) — a
+read-only, unauthenticated product catalog for customers, deliberately dependency-light (no
+radix-ui, react-hook-form, zod, zustand, recharts, or jsPDF — see `storefront/package.json`) since
+it has no admin features to support and should load fast. It has no checkout: picking a product
+opens a detail view and hands off to a `wa.me` WhatsApp deep link with a prefilled message; the
+actual order/payment/delivery is negotiated over that chat, nothing is submitted back to this app.
+Chosen over a Tienda Nube integration after discussing both — the client only wants "catalog +
+WhatsApp" for now, which is strictly simpler to build/own than an external platform integration
+(see git history around this decision if the scope ever grows to needing real online payments).
+
+- **Backend**: `app/routes/storefront_route.py` (`GET /storefront/products`, wired into
+  `api_router.py` with no `Depends(get_current_user)` — entirely public, same as
+  `brand_settings_router`'s `GET`) is backed by `StorefrontService`
+  (`app/services/storefront_service.py`), which composes Product + Stock + Category + Color + Size
+  **in memory**, same "acceptable at this scale" pattern as `ReportService`. Stock is **summed
+  across every branch** rather than scoped to one "online" branch — unlike a real checkout, there's
+  no oversell risk here (no stock is ever decremented by a storefront view), so the extra
+  configuration a single online branch would require isn't worth it. A product with zero stock
+  anywhere still appears (`in_stock: false`) rather than being hidden, so the storefront can still
+  advertise it with a "Consultar disponibilidad" WhatsApp message instead of "Pedir por WhatsApp".
+- **WhatsApp number**: `BrandSettings.whatsapp_number` (nullable `str`, digits only, no `+` —
+  interpolated directly into a `wa.me/<number>` link) is editable from the admin's existing
+  Configuración page (`BrandSettingsPage.tsx`), reusing the same singleton-settings entity as the
+  logo/company-name/colors rather than inventing a separate settings concept. `GET /brand-settings`
+  already had no auth dependency (see BrandSettings above), so the storefront reads it the same way
+  the admin login page reads the logo — no new public endpoint needed for this.
+- **Branding parity, without pulling in the admin's theme system**: `storefront/src/theme/
+  useBrandTheme.ts` re-implements just the CSS-custom-property application half of the admin's
+  `ThemeProvider.tsx`/`applyTheme` (same 14 tokens, same "DB override wins token-by-token over the
+  factory oklch() defaults" behavior) — copied rather than shared as a package, since these are two
+  independent Vite apps with no shared build step. Unlike the admin, there's no manual light/dark
+  toggle here; it just follows the OS `prefers-color-scheme`, since a public catalog has no
+  persisted-per-user theme preference to store. `storefront/src/index.css` mirrors only the CSS
+  variable tokens the storefront actually uses (no sidebar/chart tokens) from the admin's
+  `index.css` — kept in sync by hand, there's no build-time link between the two files.
+- **No router, no global state library**: a single page (`App.tsx`) with local `useState` for
+  search/category-filter/selected-product is enough — there's nothing here that needs a route
+  (product detail is a `<dialog>` overlay, not a URL) or cross-component shared state beyond what
+  props already carry.
+- `ProductDetailDialog.tsx` uses the native `<dialog>` element (`showModal()`/`close()`) instead of
+  a library — its built-in focus trap, Escape-to-close, and `::backdrop` cover everything a product
+  popup needs, at zero extra bundle cost. A product with more than one `Stock` variant shows a
+  picker (color/size chips); picking a variant + quantity and pressing "Agregar al carrito" adds a
+  `CartLine` and opens the cart (see below) — it does not build a WhatsApp link itself anymore.
+- **Ordering is cart-based, not per-product** (changed after the first pass, per explicit feedback):
+  `storefront/src/stores/cartStore.ts` is a `zustand` store (+ `persist`, own localStorage key
+  `storefront-cart` — survives a closed tab, same reasoning as the admin's own `persist`ed stores)
+  holding `CartLine[]` (`key` = `` `${productId}:${stockId ?? 'none'}` ``, so the same product in two
+  different variants is two separate lines). `Header.tsx` shows a cart icon with an item-count
+  badge; `CartDialog.tsx` (another native `<dialog>`) lists lines with a quantity stepper and remove
+  button, and `lib/whatsapp.ts`'s `buildCartWhatsAppUrl` builds **one** `wa.me` link for the whole
+  cart (numbered lines, one combined total) instead of one link per product.
+- **Hiding a product, or just its price, from the storefront**: `Product.hidden_from_storefront`/
+  `Product.price_hidden_from_storefront` (both `bool`, default `False` — see `app/domain/
+  product.py`) are storefront-only display toggles, irrelevant to the POS itself (a hidden or
+  price-hidden product still sells normally at the register, and its stock/sales are unaffected).
+  Edited from the admin's existing product form (`ProductsPage.tsx`, two checkboxes) — no new page.
+  `StorefrontService.list_products` drops a `hidden_from_storefront` product entirely and returns
+  `price: None` for a `price_hidden_from_storefront` one; `StorefrontProductRead.price` is therefore
+  `Decimal | None`. The frontend's `formatPriceOrConsult()` (`lib/format.ts`) renders `null` as
+  "Consultar precio" everywhere a price would otherwise show (product card, detail dialog, cart
+  line), and `buildCartWhatsAppUrl` excludes those lines from the cart's total, calling them out
+  separately ("+ precios a consultar") instead of silently treating them as $0.
+- **Deployment**: mirrors `frontend/`'s exactly — `storefront/Dockerfile` (multi-stage, same
+  `VITE_API_BASE_URL=/api` build arg) + `storefront/nginx.conf` (same `/api/`/`/media/` proxy to
+  `backend`) + a `storefront` service in `docker-compose.prod.yml`, bound to its own host-only port
+  (`STOREFRONT_PORT`, default 8091) — same "host Nginx terminates TLS and routes by subdomain"
+  pattern as `DOMAIN`/`FRONTEND_PORT` (see Production deployment below), just optional per client
+  until they actually want the public catalog live. `CORS_ORIGINS` in `docker-compose.prod.yml`
+  includes `STOREFRONT_DOMAIN` for this reason. Local dev runs it as its own Vite dev server on
+  port 5174 (`.claude/launch.json`'s `storefront` config; `app/core/config.py`'s `cors_origins`
+  default list includes `http://localhost:5174` for this).
+
 ## Database
 
 PostgreSQL via `asyncpg`, but all access goes through SQLAlchemy — no raw SQL, no engine-specific

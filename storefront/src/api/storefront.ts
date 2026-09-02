@@ -1,0 +1,30 @@
+import { apiClient } from '@/api/client'
+
+/** Mirrors `app/schemas/storefront_schema.py`'s `StorefrontVariantRead`/
+ * `StorefrontProductRead` — snake_case, same convention as every API type in
+ * this codebase. */
+export interface StorefrontVariant {
+  stock_id: number
+  color_name: string | null
+  color_hex: string | null
+  size_label: string | null
+  quantity: number
+}
+
+export interface StorefrontProduct {
+  id: number
+  name: string
+  description: string | null
+  /** A JSON string, not a number (see `lib/format.ts`'s `formatCurrency`) —
+   * or `null` when the admin marked this product's price as hidden
+   * (`Product.price_hidden_from_storefront`). */
+  price: string | null
+  image_url: string | null
+  category_name: string | null
+  variants: StorefrontVariant[]
+  in_stock: boolean
+}
+
+export const storefrontApi = {
+  listProducts: () => apiClient.get<StorefrontProduct[]>('/storefront/products'),
+}

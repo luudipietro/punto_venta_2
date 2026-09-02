@@ -11,6 +11,8 @@ class ProductBase(BaseModel):
     price: Decimal = Field(ge=0)
     description: str | None = None
     image_url: str | None = None
+    hidden_from_storefront: bool = False
+    price_hidden_from_storefront: bool = False
 
 
 class ProductCreate(ProductBase):

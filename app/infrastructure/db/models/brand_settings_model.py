@@ -17,3 +17,4 @@ class BrandSettingsModel(Base):
     # {"light": {...}, "dark": {...}} of CSS color strings — None means "use
     # the static brandConfig.colors defaults" (see brand.config.ts).
     colors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    whatsapp_number: Mapped[str | None] = mapped_column(String(30), nullable=True)

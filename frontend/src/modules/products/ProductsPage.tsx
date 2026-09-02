@@ -38,6 +38,8 @@ const emptyInput: ProductInput = {
   price: 0,
   description: '',
   image_url: '',
+  hidden_from_storefront: false,
+  price_hidden_from_storefront: false,
 }
 
 export function ProductsPage() {
@@ -84,6 +86,8 @@ export function ProductsPage() {
     price: number
     description: string | null
     image_url: string | null
+    hidden_from_storefront: boolean
+    price_hidden_from_storefront: boolean
   }) {
     setEditingId(product.id)
     setForm({
@@ -94,6 +98,8 @@ export function ProductsPage() {
       price: product.price,
       description: product.description ?? '',
       image_url: product.image_url ?? '',
+      hidden_from_storefront: product.hidden_from_storefront,
+      price_hidden_from_storefront: product.price_hidden_from_storefront,
     })
     setOpen(true)
   }
@@ -291,6 +297,32 @@ export function ProductsPage() {
                     value={form.image_url ?? ''}
                     onChange={(event) => setForm((prev) => ({ ...prev, image_url: event.target.value }))}
                   />
+                </div>
+                <div className="grid gap-2 rounded-md border p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Catálogo online</p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.hidden_from_storefront ?? false}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, hidden_from_storefront: event.target.checked }))
+                      }
+                    />
+                    No mostrar este producto en el catálogo online
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.price_hidden_from_storefront ?? false}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          price_hidden_from_storefront: event.target.checked,
+                        }))
+                      }
+                    />
+                    Ocultar el precio en el catálogo online (muestra "Consultar precio")
+                  </label>
                 </div>
                 {editingId !== null ? (
                   <ProductGallery productId={editingId} />

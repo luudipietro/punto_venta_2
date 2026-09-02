@@ -19,10 +19,21 @@ class BrandSettingsService:
     async def get(self) -> BrandSettings:
         return await self._repository.get() or _DEFAULT
 
-    async def update(self, company_name: str, logo_url: str, colors: dict | None = None) -> BrandSettings:
+    async def update(
+        self,
+        company_name: str,
+        logo_url: str,
+        colors: dict | None = None,
+        whatsapp_number: str | None = None,
+    ) -> BrandSettings:
         previous = await self._repository.get()
         updated = await self._repository.upsert(
-            BrandSettings(company_name=company_name, logo_url=logo_url, colors=colors)
+            BrandSettings(
+                company_name=company_name,
+                logo_url=logo_url,
+                colors=colors,
+                whatsapp_number=whatsapp_number,
+            )
         )
         if previous and previous.logo_url != updated.logo_url:
             delete_media_file(previous.logo_url)

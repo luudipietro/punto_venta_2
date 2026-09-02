@@ -1,0 +1,13 @@
+from fastapi import APIRouter, Depends
+
+from app.schemas.storefront_schema import StorefrontProductRead
+from app.services.storefront_service import StorefrontService, get_storefront_service
+
+router = APIRouter(prefix="/storefront", tags=["Storefront"])
+
+
+@router.get("/products", response_model=list[StorefrontProductRead])
+async def list_storefront_products(
+    service: StorefrontService = Depends(get_storefront_service),
+) -> list[StorefrontProductRead]:
+    return await service.list_products()

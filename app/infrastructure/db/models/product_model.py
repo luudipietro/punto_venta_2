@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from sqlalchemy import ForeignKey, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.db.base import Base
@@ -17,3 +17,7 @@ class ProductModel(Base):
     brand_id: Mapped[int | None] = mapped_column(ForeignKey("brands.id"), nullable=True)
     cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    hidden_from_storefront: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    price_hidden_from_storefront: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )

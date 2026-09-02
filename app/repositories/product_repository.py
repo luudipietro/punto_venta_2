@@ -41,6 +41,8 @@ class SqlAlchemyProductRepository(SqlAlchemyRepository[ProductModel], ProductRep
             brand_id=product.brand_id,
             cost=product.cost,
             price=product.price,
+            hidden_from_storefront=product.hidden_from_storefront,
+            price_hidden_from_storefront=product.price_hidden_from_storefront,
         )
         self._session.add(model)
         await self._session.flush()
@@ -55,6 +57,8 @@ class SqlAlchemyProductRepository(SqlAlchemyRepository[ProductModel], ProductRep
         model.brand_id = product.brand_id
         model.cost = product.cost
         model.price = product.price
+        model.hidden_from_storefront = product.hidden_from_storefront
+        model.price_hidden_from_storefront = product.price_hidden_from_storefront
         await self._session.flush()
         return self._to_domain(model)
 
@@ -74,4 +78,6 @@ class SqlAlchemyProductRepository(SqlAlchemyRepository[ProductModel], ProductRep
             brand_id=model.brand_id,
             cost=model.cost,
             price=model.price,
+            hidden_from_storefront=model.hidden_from_storefront,
+            price_hidden_from_storefront=model.price_hidden_from_storefront,
         )

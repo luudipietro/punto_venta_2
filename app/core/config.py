@@ -25,8 +25,10 @@ class Settings(BaseSettings):
     #   mysql+aiomysql://user:password@localhost:3306/pos
     database_url: str = "postgresql+asyncpg://pos:pos@localhost:5432/pos"
 
-    # Origins allowed to call the API from a browser (the frontend's dev/prod URL).
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # Origins allowed to call the API from a browser (the admin frontend's
+    # dev/prod URL, plus the public storefront's — a separate Vite app/
+    # deployment, see storefront/).
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:5174"]
 
     # Local disk storage for uploaded images (e.g. product photos), served as
     # static files at media_url. No cloud storage dependency.

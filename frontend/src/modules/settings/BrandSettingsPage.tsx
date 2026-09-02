@@ -45,6 +45,7 @@ export function BrandSettingsPage() {
 
   const [companyName, setCompanyName] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
+  const [whatsappNumber, setWhatsappNumber] = useState('')
   const [uploading, setUploading] = useState(false)
   const [lightColors, setLightColors] = useState<BrandColorSet | null>(null)
   const [darkColors, setDarkColors] = useState<BrandColorSet | null>(null)
@@ -54,6 +55,7 @@ export function BrandSettingsPage() {
     if (settings) {
       setCompanyName(settings.company_name)
       setLogoUrl(settings.logo_url)
+      setWhatsappNumber(settings.whatsapp_number ?? '')
       setLightColors(
         settings.colors?.light ? fromApiColorSet(settings.colors.light) : defaultsAsHex('light'),
       )
@@ -91,6 +93,7 @@ export function BrandSettingsPage() {
         company_name: companyName,
         logo_url: logoUrl,
         colors: { light: toApiColorSet(lightColors), dark: toApiColorSet(darkColors) },
+        whatsapp_number: whatsappNumber.trim() || null,
       })
       toast.success('Configuración guardada')
     } catch (error) {
@@ -138,6 +141,20 @@ export function BrandSettingsPage() {
                 }}
               />
             </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="whatsapp-number">Número de WhatsApp para pedidos</Label>
+            <Input
+              id="whatsapp-number"
+              type="tel"
+              placeholder="5491122334455"
+              value={whatsappNumber}
+              onChange={(event) => setWhatsappNumber(event.target.value.replace(/[^0-9]/g, ''))}
+            />
+            <p className="text-xs text-muted-foreground">
+              Solo números, con código de país y sin el "+" (ej: 5491122334455). Se usa en el
+              catálogo online para el botón "Pedir por WhatsApp".
+            </p>
           </div>
         </CardContent>
       </Card>

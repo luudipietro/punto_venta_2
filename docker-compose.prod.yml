@@ -22,7 +22,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pos}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pos}
       SECRET_KEY: ${SECRET_KEY:?set a real SECRET_KEY in .env.prod}
-      CORS_ORIGINS: '["https://${DOMAIN}", "http://${SERVER_IP:-localhost}"]'
+      # STOREFRONT_DOMAIN is optional — only set it once the public storefront
+      # gets its own subdomain (see the `storefront` service below); an unset
+      # value just adds a harmless "https://" entry that matches no real origin.
+      CORS_ORIGINS: '["https://${DOMAIN}", "http://${SERVER_IP:-localhost}", "https://${STOREFRONT_DOMAIN:-}"]'
     volumes:
       - pos_media:/app/media
     depends_on:
@@ -38,6 +41,21 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      - backend
+
+  # Public customer-facing catalog (storefront/) — a separate app/subdomain
+  # from the admin frontend above, no login. Optional: only relevant once
+  # STOREFRONT_PORT/STOREFRONT_DOMAIN are set up for this client.
+  storefront:
+    build:
+      context: ./storefront
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${STOREFRONT_PORT:-8091}:80"
     depends_on:
       - backend
 
