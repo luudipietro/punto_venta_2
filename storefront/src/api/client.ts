@@ -13,16 +13,27 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`)
+interface RequestOptions {
+  method?: 'GET' | 'POST'
+  body?: unknown
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? 'GET',
+    headers: options.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  })
   if (!response.ok) {
     throw new ApiError(response.statusText || `Request failed with status ${response.status}`, response.status)
   }
   return (await response.json()) as T
 }
 
-// GET-only client on purpose — the storefront is entirely read-only, there
-// is no login and nothing here ever writes back to the POS.
+// No auth headers anywhere — the storefront is entirely public, there is no
+// login and nothing here ever writes back to the POS's own data (the
+// `/storefront/cart/preview` POST below is a pure computation, not a write).
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
+  post: <T>(path: string, body: unknown) => request<T>(path, { method: 'POST', body }),
 }

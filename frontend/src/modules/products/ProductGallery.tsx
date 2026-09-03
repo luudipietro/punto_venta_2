@@ -68,7 +68,6 @@ export function ProductGallery({ productId }: { productId: number }) {
       <Input
         type="file"
         accept="image/*"
-        capture="environment"
         disabled={uploading}
         onChange={(event) => handleAddFile(event.target.files?.[0])}
       />

@@ -20,11 +20,29 @@ export interface StorefrontProduct {
    * (`Product.price_hidden_from_storefront`). */
   price: string | null
   image_url: string | null
+  /** Extra gallery photos beyond the cover `image_url`, for the product
+   * page's thumbnail strip. */
+  gallery_urls: string[]
   category_name: string | null
   variants: StorefrontVariant[]
   in_stock: boolean
 }
 
+export interface AppliedPromotion {
+  promotion_id: number
+  name: string
+  discount_amount: string
+}
+
+export interface CartPreview {
+  subtotal: string
+  promotion_discount: string
+  total: string
+  applied_promotions: AppliedPromotion[]
+}
+
 export const storefrontApi = {
   listProducts: () => apiClient.get<StorefrontProduct[]>('/storefront/products'),
+  previewCart: (items: { product_id: number; quantity: number }[]) =>
+    apiClient.post<CartPreview>('/storefront/cart/preview', { items }),
 }

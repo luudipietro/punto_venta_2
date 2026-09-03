@@ -1,12 +1,7 @@
 import type { StorefrontProduct } from '@/api/storefront'
 import { ProductCard } from '@/components/ProductCard'
 
-interface Props {
-  products: StorefrontProduct[]
-  onSelect: (product: StorefrontProduct) => void
-}
-
-export function ProductGrid({ products, onSelect }: Props) {
+export function ProductGrid({ products }: { products: StorefrontProduct[] }) {
   if (products.length === 0) {
     return (
       <p className="py-16 text-center text-sm text-muted-foreground">
@@ -16,9 +11,9 @@ export function ProductGrid({ products, onSelect }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {products.map((product) => (
-        <ProductCard key={product.id} product={product} onSelect={onSelect} />
+        <ProductCard key={product.id} product={product} />
       ))}
     </div>
   )

@@ -29,6 +29,7 @@ export interface BrandSettings {
   logo_url: string
   colors?: ApiColors | null
   whatsapp_number?: string | null
+  hero_images?: string[] | null
 }
 
 export const brandSettingsApi = {

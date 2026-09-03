@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StorefrontVariantRead(BaseModel):
@@ -20,6 +20,31 @@ class StorefrontProductRead(BaseModel):
     # then shows "Consultar precio" instead of a number.
     price: Decimal | None
     image_url: str | None
+    # Extra gallery photos (`ProductImage`, beyond the cover `image_url`),
+    # for the storefront's product-detail page thumbnail strip.
+    gallery_urls: list[str]
     category_name: str | None
     variants: list[StorefrontVariantRead]
     in_stock: bool
+
+
+class CartPreviewItem(BaseModel):
+    product_id: int
+    quantity: int = Field(gt=0)
+
+
+class CartPreviewRequest(BaseModel):
+    items: list[CartPreviewItem] = Field(min_length=1)
+
+
+class AppliedPromotionRead(BaseModel):
+    promotion_id: int
+    name: str
+    discount_amount: Decimal
+
+
+class CartPreviewResponse(BaseModel):
+    subtotal: Decimal
+    promotion_discount: Decimal
+    total: Decimal
+    applied_promotions: list[AppliedPromotionRead]

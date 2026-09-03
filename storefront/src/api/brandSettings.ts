@@ -28,6 +28,7 @@ export interface BrandSettings {
   logo_url: string
   colors?: ApiColors | null
   whatsapp_number: string | null
+  hero_images?: string[] | null
 }
 
 // GET only — the storefront never edits brand settings, that's the admin

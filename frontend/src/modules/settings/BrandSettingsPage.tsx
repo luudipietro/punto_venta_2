@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -46,7 +47,9 @@ export function BrandSettingsPage() {
   const [companyName, setCompanyName] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
   const [whatsappNumber, setWhatsappNumber] = useState('')
+  const [heroImages, setHeroImages] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
+  const [uploadingHero, setUploadingHero] = useState(false)
   const [lightColors, setLightColors] = useState<BrandColorSet | null>(null)
   const [darkColors, setDarkColors] = useState<BrandColorSet | null>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
@@ -56,6 +59,7 @@ export function BrandSettingsPage() {
       setCompanyName(settings.company_name)
       setLogoUrl(settings.logo_url)
       setWhatsappNumber(settings.whatsapp_number ?? '')
+      setHeroImages(settings.hero_images ?? [])
       setLightColors(
         settings.colors?.light ? fromApiColorSet(settings.colors.light) : defaultsAsHex('light'),
       )
@@ -86,6 +90,35 @@ export function BrandSettingsPage() {
     }
   }
 
+  // No crop step here (unlike the logo) — hero banners are wide/arbitrary
+  // aspect ratio by nature, a fixed crop target would fight against that.
+  async function handleHeroImageFile(file: File | undefined) {
+    if (!file) return
+    setUploadingHero(true)
+    try {
+      const url = await uploadProductImage(file)
+      setHeroImages((prev) => [...prev, url])
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo subir la imagen')
+    } finally {
+      setUploadingHero(false)
+    }
+  }
+
+  function moveHeroImage(index: number, direction: -1 | 1) {
+    setHeroImages((prev) => {
+      const target = index + direction
+      if (target < 0 || target >= prev.length) return prev
+      const next = [...prev]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  function removeHeroImage(index: number) {
+    setHeroImages((prev) => prev.filter((_, i) => i !== index))
+  }
+
   async function handleSave() {
     if (!lightColors || !darkColors) return
     try {
@@ -94,6 +127,7 @@ export function BrandSettingsPage() {
         logo_url: logoUrl,
         colors: { light: toApiColorSet(lightColors), dark: toApiColorSet(darkColors) },
         whatsapp_number: whatsappNumber.trim() || null,
+        hero_images: heroImages,
       })
       toast.success('Configuración guardada')
     } catch (error) {
@@ -159,6 +193,65 @@ export function BrandSettingsPage() {
         </CardContent>
       </Card>
 
+      <Card className="mt-4 max-w-md">
+        <CardContent className="grid gap-3">
+          <div>
+            <Label>Imágenes del carrusel (home del catálogo online)</Label>
+            <p className="text-xs text-muted-foreground">
+              Se muestran en orden, cambiando automáticamente cada 5 segundos.
+            </p>
+          </div>
+          {heroImages.length > 0 && (
+            <ul className="grid gap-2">
+              {heroImages.map((url, index) => (
+                <li key={url} className="flex items-center gap-2 rounded-md border p-2">
+                  <img
+                    src={url}
+                    alt=""
+                    className="h-12 w-20 shrink-0 rounded object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden'
+                    }}
+                  />
+                  <span className="flex-1 truncate text-xs text-muted-foreground">{url}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={index === 0}
+                    onClick={() => moveHeroImage(index, -1)}
+                  >
+                    <ChevronUp className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={index === heroImages.length - 1}
+                    onClick={() => moveHeroImage(index, 1)}
+                  >
+                    <ChevronDown className="size-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removeHeroImage(index)}>
+                    <X className="size-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Input
+            type="file"
+            accept="image/*"
+            disabled={uploadingHero}
+            onChange={(event) => {
+              handleHeroImageFile(event.target.files?.[0])
+              event.target.value = ''
+            }}
+          />
+          {uploadingHero && <p className="text-xs text-muted-foreground">Subiendo imagen...</p>}
+        </CardContent>
+      </Card>
+
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <ColorEditor
           title="Colores (modo claro)"
@@ -176,7 +269,7 @@ export function BrandSettingsPage() {
 
       <Button
         onClick={handleSave}
-        disabled={updateMutation.isPending || uploading || !companyName.trim()}
+        disabled={updateMutation.isPending || uploading || uploadingHero || !companyName.trim()}
         className="mt-4 w-fit"
       >
         Guardar

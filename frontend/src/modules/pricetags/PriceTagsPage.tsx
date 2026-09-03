@@ -14,6 +14,7 @@ import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { usePromotions } from '@/hooks/usePromotions'
 import { promotionApi, type PromotionItemRead } from '@/api/promotion'
 import { formatCurrency } from '@/lib/format'
+import { generateLineKey } from '@/lib/id'
 import { downloadPriceTagsPdf, SHEET_LAYOUTS, type PriceTagItem } from '@/lib/priceTags'
 import { brandConfig } from '@/theme/brand.config'
 
@@ -94,7 +95,7 @@ export function PriceTagsPage() {
     if (!manualDraft.name.trim() || !price || price <= 0) return
     setManualItems((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), name: manualDraft.name.trim(), price, copies: 1, detail: '' },
+      { id: generateLineKey(), name: manualDraft.name.trim(), price, copies: 1, detail: '' },
     ])
     setManualDraft(emptyManualDraft())
   }

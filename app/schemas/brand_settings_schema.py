@@ -28,6 +28,7 @@ class BrandSettingsUpdate(BaseModel):
     logo_url: str
     colors: BrandColors | None = None
     whatsapp_number: str | None = None
+    hero_images: list[str] | None = None
 
 
 class BrandSettingsRead(BaseModel):
@@ -35,3 +36,4 @@ class BrandSettingsRead(BaseModel):
     logo_url: str
     colors: BrandColors | None = None
     whatsapp_number: str | None = None
+    hero_images: list[str] | None = None

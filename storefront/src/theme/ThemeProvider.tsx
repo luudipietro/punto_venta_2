@@ -1,7 +1,17 @@
-import { useEffect } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { ApiColorSet, ApiColors } from '@/api/brandSettings'
 
 type Theme = 'light' | 'dark'
+
+const STORAGE_KEY = 'storefront-theme'
+
+interface ThemeContextValue {
+  theme: Theme
+  toggleTheme: () => void
+}
+
+const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 // Factory defaults — kept in sync by hand with the light/dark oklch() values
 // in index.css (which is also the admin frontend's own default), same as
@@ -58,18 +68,43 @@ function applyTheme(theme: Theme, overrides: ApiColorSet | undefined) {
   }
 }
 
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored === 'light' || stored === 'dark') return stored
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
 /** Applies the admin-configured brand colors (or the factory defaults) as
- * CSS custom properties, following the OS light/dark preference — the
- * storefront has no manual theme toggle, unlike the admin app. */
-export function useBrandTheme(colors: ApiColors | null | undefined) {
+ * CSS custom properties — defaults to the OS light/dark preference on first
+ * visit, then remembers a manual toggle (see `Navbar.tsx`'s sun/moon
+ * button) the same way the admin app's own `ThemeProvider` does. */
+export function ThemeProvider({
+  colors,
+  children,
+}: {
+  colors: ApiColors | null | undefined
+  children: ReactNode
+}) {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
+
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => {
-      const theme: Theme = media.matches ? 'dark' : 'light'
-      applyTheme(theme, colors?.[theme])
-    }
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [colors])
+    applyTheme(theme, colors?.[theme])
+    localStorage.setItem(STORAGE_KEY, theme)
+  }, [theme, colors])
+
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      theme,
+      toggleTheme: () => setTheme((current) => (current === 'dark' ? 'light' : 'dark')),
+    }),
+    [theme],
+  )
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+}
+
+export function useTheme(): ThemeContextValue {
+  const context = useContext(ThemeContext)
+  if (!context) throw new Error('useTheme must be used within a ThemeProvider')
+  return context
 }

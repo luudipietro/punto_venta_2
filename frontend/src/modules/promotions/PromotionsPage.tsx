@@ -26,6 +26,7 @@ import {
 } from '@/hooks/usePromotions'
 import { promotionApi } from '@/api/promotion'
 import type { DiscountType, PromotionItemInput, PromotionRead } from '@/api/promotion'
+import { generateLineKey } from '@/lib/id'
 import { PromotionDetail } from '@/modules/promotions/PromotionDetail'
 
 interface DraftItem extends PromotionItemInput {
@@ -34,7 +35,7 @@ interface DraftItem extends PromotionItemInput {
 }
 
 const emptyItem = (): DraftItem => ({
-  key: crypto.randomUUID(),
+  key: generateLineKey(),
   targetType: 'product',
   product_id: undefined,
   category_id: undefined,
@@ -89,7 +90,7 @@ export function PromotionsPage() {
     setEndDate(promotion.end_date ?? '')
     setItems(
       promotion.items.map((item) => ({
-        key: crypto.randomUUID(),
+        key: generateLineKey(),
         targetType: item.product_id !== null ? 'product' : 'category',
         product_id: item.product_id ?? undefined,
         category_id: item.category_id ?? undefined,

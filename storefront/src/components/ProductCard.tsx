@@ -1,15 +1,11 @@
+import { Link } from 'react-router-dom'
 import type { StorefrontProduct } from '@/api/storefront'
 import { formatPriceOrConsult } from '@/lib/format'
 
-interface Props {
-  product: StorefrontProduct
-  onSelect: (product: StorefrontProduct) => void
-}
-
-export function ProductCard({ product, onSelect }: Props) {
+export function ProductCard({ product }: { product: StorefrontProduct }) {
   return (
-    <button
-      onClick={() => onSelect(product)}
+    <Link
+      to={`/producto/${product.id}`}
       className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left text-card-foreground shadow-sm transition-shadow hover:shadow-md"
     >
       <div className="aspect-square w-full overflow-hidden bg-muted">
@@ -44,6 +40,6 @@ export function ProductCard({ product, onSelect }: Props) {
           )}
         </div>
       </div>
-    </button>
+    </Link>
   )
 }

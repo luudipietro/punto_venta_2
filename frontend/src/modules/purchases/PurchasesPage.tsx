@@ -17,6 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
+import { generateLineKey } from '@/lib/id'
 import { useAuthStore } from '@/stores/authStore'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCreatePurchase, usePurchases } from '@/hooks/usePurchases'
@@ -68,7 +69,7 @@ export function PurchasesPage() {
   }
 
   function addItem() {
-    setItems((prev) => [...prev, { key: crypto.randomUUID(), stock_id: 0, quantity: 1, unit_cost: 0 }])
+    setItems((prev) => [...prev, { key: generateLineKey(), stock_id: 0, quantity: 1, unit_cost: 0 }])
   }
 
   function updateItem(key: string, patch: Partial<DraftItem>) {
@@ -193,7 +194,7 @@ export function PurchasesPage() {
                       size="sm"
                       disabled={branchId === null}
                       onClick={() => {
-                        const key = crypto.randomUUID()
+                        const key = generateLineKey()
                         setItems((prev) => [...prev, { key, stock_id: 0, quantity: 1, unit_cost: 0 }])
                         setPendingItemKey(key)
                         setProductQuickCreateOpen(true)
@@ -206,7 +207,7 @@ export function PurchasesPage() {
                       size="sm"
                       disabled={branchId === null}
                       onClick={() => {
-                        const key = crypto.randomUUID()
+                        const key = generateLineKey()
                         setItems((prev) => [...prev, { key, stock_id: 0, quantity: 1, unit_cost: 0 }])
                         setPendingItemKey(key)
                         setStockQuickCreatePresetProductId(undefined)

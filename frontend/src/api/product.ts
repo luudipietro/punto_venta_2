@@ -1,5 +1,6 @@
 import { createCrudApi } from '@/api/base'
 import { API_BASE_URL, apiClient } from '@/api/client'
+import { compressImageForUpload } from '@/lib/image'
 
 export interface Product {
   id: number
@@ -31,9 +32,11 @@ export const productApi = createCrudApi<Product, ProductInput>('products')
 /** Uploads a product photo (file picker or device camera) and returns the
  * absolute URL to store on the product's `image_url` field. The backend
  * returns a relative path (served as a static file), so it's prefixed with
- * the API's own origin here. */
+ * the API's own origin here. Compresses the file first — see `lib/image.ts`
+ * for why that's necessary, not just nice-to-have. */
 export async function uploadProductImage(file: File): Promise<string> {
-  const { url } = await apiClient.upload<{ url: string }>('/uploads/images', file)
+  const compressed = await compressImageForUpload(file)
+  const { url } = await apiClient.upload<{ url: string }>('/uploads/images', compressed)
   return `${API_BASE_URL}${url}`
 }
 

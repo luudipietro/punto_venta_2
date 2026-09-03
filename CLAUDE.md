@@ -261,6 +261,60 @@ Findings from a manual security review, fixed in place:
   traversal via a user-supplied name; MIME-type allowlist; 5MB cap) even though it trusts the
   client's `Content-Type` header rather than sniffing actual file bytes — accepted as low-risk given
   those other protections, rather than adding a Pillow dependency to verify file content too.
+- **Camera photos routinely exceeded that 5MB cap on mobile** — found in real usage (an iPhone),
+  not hypothetically: `frontend/src/lib/image.ts`'s `compressImageForUpload()` resizes to a 1600px
+  max dimension and re-encodes as JPEG (canvas-based, ~quality 0.82) *client-side*, before the
+  upload request is even sent, and every `uploadProductImage()` call (cover photo, gallery, logo,
+  hero images — see below) routes through it. Raising the backend's cap instead would only have
+  bought a bit more headroom before an even higher-megapixel phone camera hit the same wall; this
+  fixes it at the source. Skips GIFs (canvas would flatten animation) and anything already under
+  400KB, and falls back to the original file if the browser can't decode it — never blocks an
+  upload. Also removed `capture="environment"` from the two file inputs that had it
+  (`ProductsPage.tsx`'s cover photo, `ProductGallery.tsx`) — on the same iPhone, that attribute was
+  forcing the camera to open directly instead of showing the normal "Photo Library / Take Photo"
+  picker, so there was no way to pick an existing photo from the gallery at all.
+- **`crypto.randomUUID()` silently broke every "Agregar" button when tested from a phone over
+  plain HTTP** — found while testing the app from a phone on the local network
+  (`http://192.168.0.68:5173`, not `localhost`): that origin is not a *secure context* (HTTPS, or
+  the `localhost` exemption), and `crypto.randomUUID` simply doesn't exist there, so calling it
+  threw and the click handler did nothing with no visible error. It was used as a local React list
+  key (never persisted, never sent to the server) in nine places — `PaymentPanel.tsx`,
+  `ExchangeForm.tsx` (×2), `PurchasesPage.tsx` (×3), `PromotionsPage.tsx` (×2), and
+  `PriceTagsPage.tsx`'s manual item form. All nine now use `generateLineKey()`
+  (`frontend/src/lib/id.ts`, `` `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` ``)
+  instead — since these keys never leave the browser, there was never a need for
+  cryptographic-grade randomness in the first place. Watch for this same trap with any other
+  `crypto.*` API in future work — they're gated the same way.
+- **Uploaded image URLs are absolute, with the origin baked in at upload time** —
+  `uploadProductImage()` (`frontend/src/api/product.ts`) prefixes the backend's relative path with
+  `API_BASE_URL` *once*, at upload, and that full string is what gets stored
+  (`Product.image_url`/`ProductImage.url`/`BrandSettings.logo_url`/`.hero_images`). This is
+  harmless in production (`API_BASE_URL` is the relative path `/api` there, not a real origin — see
+  Production deployment) but bit us in local dev while testing from a phone: images uploaded
+  earlier from the PC's own browser had `http://localhost:8000/...` baked in, which the phone can
+  never reach (its own `localhost` is the phone, not the PC) — the API's JSON data loaded fine (a
+  same-session CORS/host problem, see below), but every `<img>` on the page stayed broken. Fixed
+  for existing rows with a one-off `UPDATE ... SET image_url = REPLACE(image_url, 'localhost:8000',
+  '<lan-ip>:8000')` (also on `product_images.url`, `brand_settings.logo_url`, and
+  `brand_settings.hero_images` — that last one is a JSON array, so it needs the
+  `REPLACE(col::text, ...)::json` cast shape) — not a schema migration, just data hygiene after a
+  dev-only environment mismatch. If this bites again, re-run the same kind of `UPDATE`, or just
+  re-upload the affected images once every dev server is consistently reachable at one address.
+- **Testing this app from a phone on the same local network, before deploying**: needs three
+  things lined up at once, all dev-only (none of this applies in production, where everything is
+  same-origin behind one Nginx). (1) Every dev server needs `--host` (`uvicorn ... --host 0.0.0.0`,
+  `vite ... --host`) — by default each one only binds `127.0.0.1`, invisible to any other device.
+  (2) `frontend/.env.local`/`storefront/.env.local` (gitignored, Vite-only — see `vite.dev/guide/
+  env-and-mode`) need `VITE_API_BASE_URL` pointed at the PC's LAN IP, e.g.
+  `http://192.168.1.23:8000` — the default `localhost:8000` fallback in `api/client.ts` means the
+  *phone's own* localhost otherwise, not the PC's. (3) The backend's `CORS_ORIGINS` (`app/core/
+  config.py`, overridable via the project-root `.env` — `Settings`' `env_file=".env"` — since
+  `BaseSettings` replaces the field's Python-code default outright rather than merging with it, the
+  override must re-list `localhost:5173`/`5174` alongside the LAN origins, not just add to them)
+  needs those same LAN-IP origins added, or the browser blocks the API responses even though the
+  server received the request fine. All three read their config only at process start — editing
+  any of `.env`/`.env.local` needs a full restart of that one process to take effect, not just a
+  page reload.
 - **Deliberately left as-is (explicit product decision, not overlooked)**: `GET /sales`,
   `/purchases`, `/exchanges`, `/customers` and similar read endpoints are not branch-scoped — any
   logged-in empleado can read another branch's sales/purchases/exchanges (never write to them; see
@@ -1004,30 +1058,44 @@ checkout — a real request from the first client after testing the system in pr
 
 `storefront/` is a **second, separate** React/Vite app (not a page inside `frontend/`) — a
 read-only, unauthenticated product catalog for customers, deliberately dependency-light (no
-radix-ui, react-hook-form, zod, zustand, recharts, or jsPDF — see `storefront/package.json`) since
-it has no admin features to support and should load fast. It has no checkout: picking a product
-opens a detail view and hands off to a `wa.me` WhatsApp deep link with a prefilled message; the
-actual order/payment/delivery is negotiated over that chat, nothing is submitted back to this app.
-Chosen over a Tienda Nube integration after discussing both — the client only wants "catalog +
-WhatsApp" for now, which is strictly simpler to build/own than an external platform integration
-(see git history around this decision if the scope ever grows to needing real online payments).
+radix-ui, react-hook-form, zod, recharts, or jsPDF — see `storefront/package.json`; it does use
+`zustand` and, as of the redesign below, `react-router-dom`) since it has no admin features to
+support and should load fast. It has no checkout: adding to a cart and confirming hands off to a
+`wa.me` WhatsApp deep link with a prefilled message listing the whole cart; the actual order/
+payment/delivery is negotiated over that chat, nothing is submitted back to this app. Chosen over
+a Tienda Nube integration after discussing both — the client only wants "catalog + WhatsApp" for
+now, which is strictly simpler to build/own than an external platform integration.
 
 - **Backend**: `app/routes/storefront_route.py` (`GET /storefront/products`, wired into
   `api_router.py` with no `Depends(get_current_user)` — entirely public, same as
   `brand_settings_router`'s `GET`) is backed by `StorefrontService`
   (`app/services/storefront_service.py`), which composes Product + Stock + Category + Color + Size
-  **in memory**, same "acceptable at this scale" pattern as `ReportService`. Stock is **summed
-  across every branch** rather than scoped to one "online" branch — unlike a real checkout, there's
-  no oversell risk here (no stock is ever decremented by a storefront view), so the extra
-  configuration a single online branch would require isn't worth it. A product with zero stock
-  anywhere still appears (`in_stock: false`) rather than being hidden, so the storefront can still
-  advertise it with a "Consultar disponibilidad" WhatsApp message instead of "Pedir por WhatsApp".
+  + `ProductImage` **in memory**, same "acceptable at this scale" pattern as `ReportService`. Stock
+  is **summed across every branch** rather than scoped to one "online" branch — unlike a real
+  checkout, there's no oversell risk here (no stock is ever decremented by a storefront view), so
+  the extra configuration a single online branch would require isn't worth it. A product with zero
+  stock anywhere still appears (`in_stock: false`) rather than being hidden, so the storefront can
+  still advertise it with a "Consultar disponibilidad" wording instead of "Pedir por WhatsApp".
+  `StorefrontProductRead.gallery_urls` (each product's extra `ProductImage` photos, beyond the cover
+  `image_url`) rides along in the same list response — no separate per-product endpoint — for the
+  product page's thumbnail strip (see below).
 - **WhatsApp number**: `BrandSettings.whatsapp_number` (nullable `str`, digits only, no `+` —
   interpolated directly into a `wa.me/<number>` link) is editable from the admin's existing
   Configuración page (`BrandSettingsPage.tsx`), reusing the same singleton-settings entity as the
   logo/company-name/colors rather than inventing a separate settings concept. `GET /brand-settings`
   already had no auth dependency (see BrandSettings above), so the storefront reads it the same way
   the admin login page reads the logo — no new public endpoint needed for this.
+- **Hero carousel images**: `BrandSettings.hero_images` (nullable `list[str]`, a plain JSON array
+  of media URLs — same "presentation data" shape/reasoning as `colors`) is admin-managed from a new
+  section in `BrandSettingsPage.tsx`: upload (reusing `uploadProductImage()`, no crop step — unlike
+  the logo, hero banners are wide/arbitrary aspect ratio by nature), reorder (up/down buttons
+  swapping array positions), remove, all built as local array state and saved together on
+  "Guardar" — same pattern the color editors already use. `BrandSettingsService.update` diffs the
+  previous vs. new list and `delete_media_file()`s anything removed, same cleanup convention as the
+  logo replacement. `storefront/src/components/HeroCarousel.tsx` (hand-rolled, no carousel library)
+  renders them on the home page: a `flex` track translated via `translateX`, auto-advancing every
+  5s (`setInterval`, reset on manual navigation, paused on hover), with prev/next arrows and dot
+  indicators; renders nothing with zero images, a single static `<img>` with exactly one.
 - **Branding parity, without pulling in the admin's theme system**: `storefront/src/theme/
   useBrandTheme.ts` re-implements just the CSS-custom-property application half of the admin's
   `ThemeProvider.tsx`/`applyTheme` (same 14 tokens, same "DB override wins token-by-token over the
@@ -1037,23 +1105,59 @@ WhatsApp" for now, which is strictly simpler to build/own than an external platf
   persisted-per-user theme preference to store. `storefront/src/index.css` mirrors only the CSS
   variable tokens the storefront actually uses (no sidebar/chart tokens) from the admin's
   `index.css` — kept in sync by hand, there's no build-time link between the two files.
-- **No router, no global state library**: a single page (`App.tsx`) with local `useState` for
-  search/category-filter/selected-product is enough — there's nothing here that needs a route
-  (product detail is a `<dialog>` overlay, not a URL) or cross-component shared state beyond what
-  props already carry.
-- `ProductDetailDialog.tsx` uses the native `<dialog>` element (`showModal()`/`close()`) instead of
-  a library — its built-in focus trap, Escape-to-close, and `::backdrop` cover everything a product
-  popup needs, at zero extra bundle cost. A product with more than one `Stock` variant shows a
-  picker (color/size chips); picking a variant + quantity and pressing "Agregar al carrito" adds a
-  `CartLine` and opens the cart (see below) — it does not build a WhatsApp link itself anymore.
-- **Ordering is cart-based, not per-product** (changed after the first pass, per explicit feedback):
-  `storefront/src/stores/cartStore.ts` is a `zustand` store (+ `persist`, own localStorage key
-  `storefront-cart` — survives a closed tab, same reasoning as the admin's own `persist`ed stores)
-  holding `CartLine[]` (`key` = `` `${productId}:${stockId ?? 'none'}` ``, so the same product in two
-  different variants is two separate lines). `Header.tsx` shows a cart icon with an item-count
-  badge; `CartDialog.tsx` (another native `<dialog>`) lists lines with a quantity stepper and remove
-  button, and `lib/whatsapp.ts`'s `buildCartWhatsAppUrl` builds **one** `wa.me` link for the whole
-  cart (numbered lines, one combined total) instead of one link per product.
+- **Real routes via `react-router-dom`**: the product detail view is a full page
+  (`/producto/:id`, `storefront/src/pages/ProductPage.tsx`), not a modal — added specifically so it
+  has a linkable/reloadable URL. `storefront/src/components/Layout.tsx` (logo/search/cart navbar +
+  `<Outlet/>` + the cart sidebar, all persistent across navigation) wraps `/` (`pages/HomePage.tsx`)
+  and `/producto/:id` in `App.tsx`'s `<Routes>`; `main.tsx` wraps the whole tree in `BrowserRouter`.
+  `storefront/nginx.conf`'s SPA `try_files ... /index.html` fallback already covered this in
+  production; `ProductPage` finds its product from the same cached `useStorefrontProducts()` query
+  the home page uses (via `useParams`), so navigating from the grid needs no extra fetch — a direct
+  deep link just waits for that one shared query. `HomePage.tsx` keeps `search`/`category` in the
+  URL (`useSearchParams`) instead of local state, so a filtered view is itself a shareable link.
+- **One navbar, not a stacked header + search bar**: `storefront/src/components/Navbar.tsx` —
+  logo (left), a centered search input, cart icon + item-count badge (right). Typing in the search
+  box updates the `q` URL param live if already on `/`, or navigates to `/?q=...` from any other
+  page (e.g. the product page) — search is reachable everywhere, filtering only happens on
+  `HomePage`. `storefront/src/components/CategoryFilter.tsx` (the chip row) is `HomePage`-only,
+  rendered below the hero, reading/writing the `category` URL param the same way.
+- **Cart is a right-side sliding sidebar, not a centered dialog**
+  (`storefront/src/components/CartSidebar.tsx`, replacing the earlier `<dialog>`-based
+  `CartDialog.tsx`) — a fixed backdrop `<div>` + `<aside>` pair, **always mounted** (so
+  `translate-x-full ↔ translate-x-0` actually animates both ways) rather than conditionally
+  rendered, hand-rolled (no radix `Dialog`, unlike the admin's `Sheet.tsx`) to stay
+  dependency-light. Its open/closed state lives in `storefront/src/stores/cartUiStore.ts` — a
+  **separate, non-`persist`ed** zustand store from `cartStore.ts` (the actual line items), since
+  "is the drawer open" is ephemeral UI state with no reason to survive a reload; keeping it
+  separate also means any page (e.g. `ProductPage`, several route levels away from the navbar) can
+  call `cartUiStore.getState().open()` without prop-drilling through `<Outlet/>`.
+  `storefront/src/stores/cartStore.ts` itself is unchanged from the first pass: a `zustand` +
+  `persist` store (own localStorage key `storefront-cart`) holding `CartLine[]` (`key` =
+  `` `${productId}:${stockId ?? 'none'}` ``, so the same product in two variants is two lines).
+- **Adding to cart applies the same promotions the POS does, computed server-side**:
+  `POST /storefront/cart/preview` (`app/schemas/storefront_schema.py`'s `CartPreviewRequest`/
+  `CartPreviewResponse`, `StorefrontService.preview_cart`) calls the exact same
+  `PromotionService.select_winning_applications` engine `SaleService.compute_totals` uses for a
+  real sale — that method only ever needs `{product_id: quantity}`/`{product_id: category_id}`/
+  `{product_id: unit_price}` dicts and today's date, so unlike a POS sale (which resolves
+  `stock_id → Stock → Product`), the storefront cart (already keyed by `product_id`) calls it
+  directly with **no Stock/branch involved at all** — no promotion logic is duplicated. Any
+  `product_id` that no longer exists, or is `hidden_from_storefront`/`price_hidden_from_storefront`,
+  is silently skipped server-side too (never just trusting the frontend to have excluded it — a
+  price-hidden product's price must never leak into a computed total). `storefront/src/hooks/
+  useCartPreview.ts` calls this (aggregating cart lines by `productId` first, and never sending
+  price-hidden lines) with `staleTime`/no retry, and `CartSidebar.tsx` falls back to a naive
+  client-side sum if the request errors — checkout is never blocked on this endpoint being up. The
+  sidebar footer shows Subtotal → one green line per `applied_promotions` entry → Total, and
+  `lib/whatsapp.ts`'s `buildCartWhatsAppUrl` includes the same discount line(s) and the real
+  (discounted) total in the prefilled message.
+- **Product page layout** (`pages/ProductPage.tsx`, replacing the deleted `ProductDetailDialog.tsx`
+  modal): two columns (stacks on mobile) — large image + a thumbnail strip built from
+  `[image_url, ...gallery_urls]` (click to swap the main image) on the left; category eyebrow,
+  name, price/"Consultar precio", `description` rendered with `whitespace-pre-wrap` (so an admin's
+  multi-line/dashed description reads like a spec list, no separate "specs" field needed), the
+  variant-chip picker, a quantity stepper, and "Agregar al carrito" on the right. Adding to cart
+  calls `cartUiStore.open()` (opens the sidebar) instead of closing a dialog.
 - **Hiding a product, or just its price, from the storefront**: `Product.hidden_from_storefront`/
   `Product.price_hidden_from_storefront` (both `bool`, default `False` — see `app/domain/
   product.py`) are storefront-only display toggles, irrelevant to the POS itself (a hidden or
@@ -1062,8 +1166,8 @@ WhatsApp" for now, which is strictly simpler to build/own than an external platf
   `StorefrontService.list_products` drops a `hidden_from_storefront` product entirely and returns
   `price: None` for a `price_hidden_from_storefront` one; `StorefrontProductRead.price` is therefore
   `Decimal | None`. The frontend's `formatPriceOrConsult()` (`lib/format.ts`) renders `null` as
-  "Consultar precio" everywhere a price would otherwise show (product card, detail dialog, cart
-  line), and `buildCartWhatsAppUrl` excludes those lines from the cart's total, calling them out
+  "Consultar precio" everywhere a price would otherwise show, and both `buildCartWhatsAppUrl` and
+  the cart-preview flow above exclude those lines from any computed total, calling them out
   separately ("+ precios a consultar") instead of silently treating them as $0.
 - **Deployment**: mirrors `frontend/`'s exactly — `storefront/Dockerfile` (multi-stage, same
   `VITE_API_BASE_URL=/api` build arg) + `storefront/nginx.conf` (same `/api/`/`/media/` proxy to
@@ -1074,6 +1178,29 @@ WhatsApp" for now, which is strictly simpler to build/own than an external platf
   includes `STOREFRONT_DOMAIN` for this reason. Local dev runs it as its own Vite dev server on
   port 5174 (`.claude/launch.json`'s `storefront` config; `app/core/config.py`'s `cors_origins`
   default list includes `http://localhost:5174` for this).
+- **Full-width layout, manual light/dark toggle, search bypasses the hero**: after the first pass
+  above, every page container's `max-w-6xl` was dropped in favor of `w-full px-4 sm:px-6 lg:px-8`
+  (Navbar, HeroCarousel, CategoryFilter, HomePage's `<main>`, ProductPage) — the storefront now
+  fills the full viewport width rather than sitting in a centered column, and `ProductGrid.tsx`'s
+  columns were reduced (`sm:3 / lg:4 / xl:5` instead of maxing out at 5 from `sm` up) so cards read
+  bigger at typical widths instead of just filling more columns. `storefront/src/theme/
+  ThemeProvider.tsx` replaced the old OS-only `useBrandTheme.ts` hook — same CSS-variable
+  application logic, but now wrapped in a context (`useTheme()`) so `Navbar.tsx` can render a
+  sun/moon toggle button; the manual choice persists to `localStorage` (`storefront-theme`, its own
+  key, independent of the admin's `pos-theme`) and wins over the OS preference from then on, same
+  precedent as the admin app's own `ThemeProvider.tsx`. `HomePage.tsx` hides the `HeroCarousel`
+  entirely while a search term is active (`isSearching`, derived from the `q` URL param) — a
+  promotional banner isn't useful once the customer is already looking for something specific — and
+  moved the section divider to sit right after the hero rather than right after the category chips,
+  so the chips read as part of the products section below the line instead of belonging with the
+  hero above it.
+- **Gotcha: restarting the storefront's Vite dev server after adding a dependency mid-session.**
+  Installing `react-router-dom` while `npm run dev` was already running left Vite's dependency
+  pre-bundle cache (`node_modules/.vite`) stale, producing a duplicate-React runtime error
+  ("Invalid hook call" / "useRoutes() may be used only in the context of a `<Router>`") despite the
+  code itself being correct. Fix: stop the dev server, delete `storefront/node_modules/.vite`,
+  restart. Watch for this same symptom any time a new dependency is added to either frontend while
+  its dev server is already up.
 
 ## Database
 

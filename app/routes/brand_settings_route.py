@@ -22,5 +22,9 @@ async def update_brand_settings(
 ) -> BrandSettings:
     colors = payload.colors.model_dump() if payload.colors else None
     return await service.update(
-        payload.company_name, payload.logo_url, colors, payload.whatsapp_number
+        payload.company_name,
+        payload.logo_url,
+        colors,
+        payload.whatsapp_number,
+        payload.hero_images,
     )

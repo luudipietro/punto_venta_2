@@ -18,3 +18,4 @@ class BrandSettingsModel(Base):
     # the static brandConfig.colors defaults" (see brand.config.ts).
     colors: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     whatsapp_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    hero_images: Mapped[list | None] = mapped_column(JSON, nullable=True)

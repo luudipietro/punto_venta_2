@@ -25,6 +25,7 @@ class BrandSettingsService:
         logo_url: str,
         colors: dict | None = None,
         whatsapp_number: str | None = None,
+        hero_images: list[str] | None = None,
     ) -> BrandSettings:
         previous = await self._repository.get()
         updated = await self._repository.upsert(
@@ -33,10 +34,15 @@ class BrandSettingsService:
                 logo_url=logo_url,
                 colors=colors,
                 whatsapp_number=whatsapp_number,
+                hero_images=hero_images,
             )
         )
         if previous and previous.logo_url != updated.logo_url:
             delete_media_file(previous.logo_url)
+        if previous and previous.hero_images:
+            removed = set(previous.hero_images) - set(updated.hero_images or [])
+            for url in removed:
+                delete_media_file(url)
         return updated
 
 

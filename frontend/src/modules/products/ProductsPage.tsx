@@ -284,7 +284,6 @@ export function ProductsPage() {
                       id="image-file"
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       disabled={uploadingImage}
                       onChange={(event) => handleImageFile(event.target.files?.[0])}
                       className="flex-1"

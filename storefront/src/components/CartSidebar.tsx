@@ -1,46 +1,62 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { Minus, Plus, Trash2, X } from 'lucide-react'
 import { useCartStore } from '@/stores/cartStore'
+import { useCartUiStore } from '@/stores/cartUiStore'
+import { useCartPreview } from '@/hooks/useCartPreview'
 import { formatCurrency, formatPriceOrConsult } from '@/lib/format'
 import { buildCartWhatsAppUrl } from '@/lib/whatsapp'
 
 interface Props {
-  open: boolean
   whatsappNumber: string | null
-  onClose: () => void
 }
 
-export function CartDialog({ open, whatsappNumber, onClose }: Props) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
+/** A right-side sliding drawer, not a centered dialog — a fixed backdrop +
+ * `<aside>` pair, always mounted so the slide-in/out animates both ways,
+ * driven by `cartUiStore`. Hand-rolled (no radix-ui `Dialog`, unlike the
+ * admin app's `Sheet.tsx`) to keep this app dependency-light. */
+export function CartSidebar({ whatsappNumber }: Props) {
+  const isOpen = useCartUiStore((state) => state.isOpen)
+  const close = useCartUiStore((state) => state.close)
   const lines = useCartStore((state) => state.lines)
   const setQuantity = useCartStore((state) => state.setQuantity)
   const removeLine = useCartStore((state) => state.removeLine)
   const clear = useCartStore((state) => state.clear)
+  const { data: preview, isError } = useCartPreview(lines)
 
   useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
-    if (!open && dialog.open) dialog.close()
-  }, [open])
+    if (!isOpen) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') close()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isOpen, close])
 
-  const total = lines.reduce(
+  const naiveTotal = lines.reduce(
     (sum, line) => sum + (line.price ? Number(line.price) * line.quantity : 0),
     0,
   )
   const hasConsultItems = lines.some((line) => line.price === null)
 
   return (
-    <dialog
-      ref={dialogRef}
-      onClose={onClose}
-      className="w-[calc(100%-2rem)] max-w-lg rounded-xl border border-border bg-card text-card-foreground backdrop:bg-black/50"
-    >
-      <div className="flex max-h-[85vh] flex-col">
+    <>
+      <div
+        onClick={close}
+        aria-hidden="true"
+        className={`fixed inset-0 z-30 bg-black/50 transition-opacity ${
+          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      />
+      <aside
+        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-card text-card-foreground shadow-xl transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        aria-label="Carrito de compras"
+      >
         <div className="flex items-center justify-between border-b border-border p-4">
           <h2 className="text-lg font-semibold">Tu carrito</h2>
           <button
-            onClick={() => dialogRef.current?.close()}
+            onClick={close}
             aria-label="Cerrar"
             className="rounded-full p-1 text-muted-foreground hover:bg-muted"
           >
@@ -112,18 +128,42 @@ export function CartDialog({ open, whatsappNumber, onClose }: Props) {
 
         {lines.length > 0 && (
           <div className="border-t border-border p-4">
+            {preview && preview.applied_promotions.length > 0 && (
+              <div className="mb-2 space-y-1">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(preview.subtotal)}</span>
+                </div>
+                {preview.applied_promotions.map((promo) => (
+                  <div
+                    key={promo.promotion_id}
+                    className="flex items-center justify-between text-sm text-emerald-600 dark:text-emerald-400"
+                  >
+                    <span>{promo.name}</span>
+                    <span>-{formatCurrency(promo.discount_amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mb-3 flex items-center justify-between">
               <span className="text-sm font-medium">Total</span>
-              <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
+              <span className="text-lg font-bold text-primary">
+                {formatCurrency(preview ? preview.total : naiveTotal)}
+              </span>
             </div>
             {hasConsultItems && (
               <p className="mb-3 text-xs text-muted-foreground">
                 Hay productos con precio a consultar — no están incluidos en el total.
               </p>
             )}
+            {isError && (
+              <p className="mb-3 text-xs text-muted-foreground">
+                No pudimos calcular las promociones — mostrando el total sin descuentos.
+              </p>
+            )}
             {whatsappNumber ? (
               <a
-                href={buildCartWhatsAppUrl(whatsappNumber, lines)}
+                href={buildCartWhatsAppUrl(whatsappNumber, lines, preview)}
                 target="_blank"
                 rel="noreferrer"
                 className="mb-2 flex w-full items-center justify-center rounded-lg bg-[#25D366] px-4 py-3 font-medium text-white transition-opacity hover:opacity-90"
@@ -143,7 +183,7 @@ export function CartDialog({ open, whatsappNumber, onClose }: Props) {
             </button>
           </div>
         )}
-      </div>
-    </dialog>
+      </aside>
+    </>
   )
 }

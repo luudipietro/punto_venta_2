@@ -19,6 +19,7 @@ import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { useCustomer } from '@/hooks/useCustomers'
 import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { formatCurrency } from '@/lib/format'
+import { generateLineKey } from '@/lib/id'
 import { downloadExchangeReceiptPdf, formatVariantForReceipt, type ExchangeReceiptInput } from '@/lib/receipt'
 import { brandConfig } from '@/theme/brand.config'
 import { useStockOptions } from '@/modules/shared/useStockOptions'
@@ -90,7 +91,7 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
   }
 
   function addNewItem() {
-    setNewItems((prev) => [...prev, { key: crypto.randomUUID(), stock_id: 0, quantity: 1, unit_price: 0 }])
+    setNewItems((prev) => [...prev, { key: generateLineKey(), stock_id: 0, quantity: 1, unit_price: 0 }])
   }
 
   function updateNewItem(key: string, patch: Partial<NewItemDraft>) {
@@ -98,7 +99,7 @@ export function ExchangeForm({ sale, onSuccess }: ExchangeFormProps) {
   }
 
   function addPayment() {
-    setPayments((prev) => [...prev, { key: crypto.randomUUID(), payment_method_id: 0, amount: 0 }])
+    setPayments((prev) => [...prev, { key: generateLineKey(), payment_method_id: 0, amount: 0 }])
   }
 
   function updatePayment(key: string, patch: Partial<PaymentDraft>) {

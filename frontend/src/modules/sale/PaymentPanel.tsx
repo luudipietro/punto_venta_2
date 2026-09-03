@@ -10,6 +10,7 @@ import {
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { formatCurrency } from '@/lib/format'
 import { applySurcharge, netAmountFor, summarizePayments, type PaymentMethodLike } from '@/lib/payment'
+import { generateLineKey } from '@/lib/id'
 import { Plus, Trash2, Wand2 } from 'lucide-react'
 
 export interface PaymentLine {
@@ -41,7 +42,7 @@ export function PaymentPanel({ payments, onChange, total }: PaymentPanelProps) {
   const { data: paymentMethods } = usePaymentMethods()
 
   function addLine() {
-    onChange([...payments, { key: crypto.randomUUID(), paymentMethodId: null, amount: 0 }])
+    onChange([...payments, { key: generateLineKey(), paymentMethodId: null, amount: 0 }])
   }
 
   function updateLine(key: string, patch: Partial<PaymentLine>) {

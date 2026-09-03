@@ -33,6 +33,7 @@ class SqlAlchemyBrandSettingsRepository(
         model.logo_url = settings.logo_url
         model.colors = settings.colors
         model.whatsapp_number = settings.whatsapp_number
+        model.hero_images = settings.hero_images
         await self._session.flush()
         return self._to_domain(model)
 
@@ -44,4 +45,5 @@ class SqlAlchemyBrandSettingsRepository(
             logo_url=model.logo_url,
             colors=model.colors,
             whatsapp_number=model.whatsapp_number,
+            hero_images=model.hero_images,
         )
