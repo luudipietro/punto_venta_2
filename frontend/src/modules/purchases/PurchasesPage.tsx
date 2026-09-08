@@ -17,6 +17,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useBranches } from '@/hooks/useBranches'
+import { SearchableSelect } from '@/components/SearchableSelect'
 import { generateLineKey } from '@/lib/id'
 import { useAuthStore } from '@/stores/authStore'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
@@ -138,21 +139,17 @@ export function PurchasesPage() {
                 <div className="flex flex-col gap-2">
                   {items.map((item) => (
                     <div key={item.key} className="flex items-center gap-2">
-                      <Select
+                      <SearchableSelect
+                        className="min-w-0 flex-1"
                         value={item.stock_id ? String(item.stock_id) : undefined}
                         onValueChange={(value) => updateItem(item.key, { stock_id: Number(value) })}
-                      >
-                        <SelectTrigger className="min-w-0 flex-1">
-                          <SelectValue placeholder="Producto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {stockOptions.map((option) => (
-                            <SelectItem key={option.stockId} value={String(option.stockId)}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        placeholder="Producto"
+                        searchPlaceholder="Buscar producto..."
+                        options={stockOptions.map((option) => ({
+                          value: String(option.stockId),
+                          label: option.label,
+                        }))}
+                      />
                       <Input
                         type="number"
                         min={1}

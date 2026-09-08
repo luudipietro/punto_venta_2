@@ -1008,6 +1008,12 @@ sheet layout, and get a PDF — using *this* system's logo/company name, not a h
   `Intl.NumberFormat` instance with `maximumFractionDigits: 0`) is used only for the price text drawn
   onto a tag — a printed "$10.000,00" reads as clutter at a glance. Receipts and every other money
   display in the app keep using `formatCurrency()` (with cents) unchanged.
+- **Logo/company name size in `drawFooter()`**: `refSizeMm` at both call sites in `drawTag()` was
+  bumped (vertical layout `ref * 0.05` → `ref * 0.068`, plus the separator moved from `0.15` to
+  `0.17` down to keep clearance; horizontal layout `ref * 0.075` → `ref * 0.1`) — the footer read too
+  small relative to the product name/price on a printed tag. `drawFooter`'s own shrink-to-fit while
+  loop is still the safety net if a long company name would otherwise overflow `maxWidth` at the
+  new starting size, so this is a starting-point increase, not a fixed size.
 - **Gotcha found the hard way: `jsPDF.setFontSize()` always takes points, never the document's own
   unit.** Every measurement in this file is otherwise in millimeters (matching `receipt.ts`'s
   convention), so the very first version of this feature fed mm-scale numbers straight into
@@ -1053,6 +1059,15 @@ checkout — a real request from the first client after testing the system in pr
   "Precio" table column) swap their `formatCurrency(...)` call for the resolved
   price/color — the `Costo` column and the create/edit product form keep showing/editing the raw
   base price unchanged, since that's the actual stored value.
+- `PricingDisplaySelector.tsx`'s dropdown lists **only real `PaymentMethod` rows** — no invented
+  "Precio de lista" entry, not even as placeholder text (a real point of confusion across two
+  rounds of feedback: the shop doesn't have a payment method called that, and the dropdown was
+  effectively inventing one). It defaults to the **first configured method** (`methods[0].id`) the
+  first time the catalog loads with nothing picked yet, rather than showing any "no selection"
+  state at all — computed inline as `selectedId ?? methods?.[0]?.id` so the first real method
+  renders immediately (no placeholder flash before a `useEffect` persists that default into
+  `pricingDisplayStore`). Renders nothing (`return null`) if the shop has zero payment methods
+  configured, rather than showing an empty/fake dropdown.
 
 ## Public storefront (WhatsApp catalog)
 
@@ -1319,13 +1334,21 @@ frontend/src/
     products/       # ProductsPage.tsx — list/grid view toggle, image_url cover field + thumbnail,
                      # optional category/brand ("Sin categoría"/"Sin marca" sentinel in the Select),
                      # file upload (uploadProductImage) or manual URL for the cover; ProductGallery.tsx
-                     # (extra photos, only enabled once the product has an id — see ProductImage above)
+                     # (extra photos, only enabled once the product has an id — see ProductImage above).
+                     # Search by name + sortable Nombre/Categoría/Marca/Costo/Precio column headers
+                     # (SortableHead, shared with StockPage.tsx below), all client-side over the
+                     # already-loaded product list, mirroring the pattern StockPage had first.
     stock/          # StockPage.tsx — +/- adjustments require an AlertDialog confirmation
                      # (deliberately not audited server-side yet, see Known limitations); search
                      # by product name, branch filter, and sortable Producto/Cantidad/Sucursal
-                     # column headers, all computed client-side over the already-loaded stock list;
+                     # column headers (SortableHead, components/SortableHead.tsx — extracted here
+                     # since ProductsPage.tsx needed the identical thing), all computed client-side
+                     # over the already-loaded stock list; list/grid view toggle mirroring
+                     # ProductsPage.tsx's (same card layout, showing quantity instead of price);
                      # "Nuevo" pre-checks for an existing matching variant and offers to merge
-                     # quantities instead of creating a duplicate (see Stock above)
+                     # quantities instead of creating a duplicate (see Stock above); its product
+                     # field uses SearchableSelect (components/SearchableSelect.tsx — see the
+                     # Frontend dialog-gotchas note above) instead of a plain Select.
     sale/           # the POS: SalePage/ProductPicker/CartPanel/PaymentPanel/cartStore.ts,
                      # CustomerPicker.tsx (optional, debounced dni/name search + inline create),
                      # SalesHistoryPage.tsx (daily balance, expandable per-day breakdown of
@@ -1459,6 +1482,26 @@ Notable frontend-specific decisions, in case they look surprising:
   silently stays narrow. Every "make this dialog bigger" override in this codebase
   (`SalesHistoryPage.tsx`, `PurchasesPage.tsx`, `PromotionsPage.tsx`, `ExchangesPage.tsx`) uses
   `sm:max-w-2xl` for this reason; keep doing that instead of a bare `max-w-*`.
+- **`DialogContent` now caps its own height and scrolls** (`components/ui/dialog.tsx`:
+  `max-h-[85vh] overflow-y-auto overflow-x-hidden`) — found as a real bug on an iPhone: the shadcn
+  base had no height constraint at all, so a tall form (editing a Product, or a Promotion with
+  several items) simply extended past the bottom of a short mobile viewport with no way to scroll
+  down to "Guardar". This is a single fix in the base component, so it applies to every dialog in
+  the app at once, not just the two that surfaced it. `PromotionsPage.tsx`'s item-row layout also
+  got a few `grid-cols-1 sm:grid-cols-2`/`flex-wrap` tweaks (the Desde/Hasta date inputs, the target-
+  price row, the targetType selector) since native `<input type="date">` on iOS was otherwise wide
+  enough to push the dialog past the viewport width too, not just its height.
+- **`SearchableSelect.tsx`** (new, `components/`) — a `<Select>` replacement with a filter box, for
+  the same reason `CustomerPicker.tsx` searches server-side: a plain dropdown is unusable once a
+  shop has 100-200 products, and there was no way to type to narrow it down when picking a product/
+  stock row while creating a Purchase item or a new Stock row (a real complaint — scrolling an
+  unsorted list of hundreds of products to find one was slow). Unlike `CustomerPicker`, this
+  filters **client-side** over an already-loaded list (`products`/`stockOptions`), matching how
+  those are already fetched in full everywhere it's used. No new dependency (no `cmdk`/`Popover`) —
+  plain pointer events + a click-outside listener, same dependency-light approach as
+  `LogoCropDialog.tsx`. Wired into `StockPage.tsx`'s "Nuevo" dialog (product) and
+  `PurchasesPage.tsx`'s item rows (stock/variant) so far — not yet in `PromotionsPage.tsx`'s or
+  `ExchangeForm.tsx`'s product pickers, which have the same problem; extend to those too if asked.
 - **Gotcha: `text-align: center` on a shadcn `CardHeader` does not center an `<img>`.**
   `components/ui/card.tsx`'s `CardHeader` is CSS **grid** (`grid auto-rows-min items-start ...`),
   not flex — and Tailwind's Preflight reset sets `img { display: block }`. `text-align` only

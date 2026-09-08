@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { ArrowDown, ArrowUp, Minus, Plus, Trash2 } from 'lucide-react'
+import { LayoutGrid, List, Minus, Plus, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
+import { SearchableSelect } from '@/components/SearchableSelect'
+import { SortableHead } from '@/components/SortableHead'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +35,8 @@ import { useSizes } from '@/hooks/useSizes'
 import { useCreateStock, useDecreaseStock, useDeleteStock, useIncreaseStock, useStocks } from '@/hooks/useStocks'
 import { useAuthStore } from '@/stores/authStore'
 import type { Stock, StockInput } from '@/api/stock'
+
+type ViewMode = 'list' | 'grid'
 
 const emptyInput: StockInput = {
   product_id: 0,
@@ -68,6 +72,7 @@ export function StockPage() {
   const [branchFilter, setBranchFilter] = useState<number | 'all'>('all')
   const [sortField, setSortField] = useState<'name' | 'quantity' | 'branch'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
 
   function toggleSort(field: 'name' | 'quantity' | 'branch') {
     if (field === sortField) {
@@ -188,7 +193,34 @@ export function StockPage() {
       <PageHeader
         title="Stock"
         action={
-          <Dialog open={open} onOpenChange={setOpen}>
+          <div className="flex items-center gap-2">
+            <div className="flex overflow-hidden rounded-md border">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={
+                  'size-9 rounded-none ' + (viewMode === 'list' ? 'bg-accent' : 'text-muted-foreground')
+                }
+                onClick={() => setViewMode('list')}
+                aria-label="Ver como lista"
+              >
+                <List className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={
+                  'size-9 rounded-none ' + (viewMode === 'grid' ? 'bg-accent' : 'text-muted-foreground')
+                }
+                onClick={() => setViewMode('grid')}
+                aria-label="Ver como tarjetas"
+              >
+                <LayoutGrid className="size-4" />
+              </Button>
+            </div>
+            <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button onClick={openCreateDialog}>Nuevo</Button>
             </DialogTrigger>
@@ -199,21 +231,13 @@ export function StockPage() {
               <div className="grid gap-4 py-2">
                 <div className="grid gap-1.5">
                   <Label>Producto</Label>
-                  <Select
+                  <SearchableSelect
                     value={form.product_id ? String(form.product_id) : undefined}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, product_id: Number(value) }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Elegir" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {products?.map((product) => (
-                        <SelectItem key={product.id} value={String(product.id)}>
-                          {product.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Elegir"
+                    searchPlaceholder="Buscar producto..."
+                    options={products?.map((product) => ({ value: String(product.id), label: product.name })) ?? []}
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label>Sucursal</Label>
@@ -285,7 +309,8 @@ export function StockPage() {
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
         }
       />
 
@@ -316,6 +341,67 @@ export function StockPage() {
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando...</p>
+      ) : viewMode === 'grid' ? (
+        visibleRows.length ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {visibleRows.map(({ stock, product, productName, color, variant, branchName }) => (
+              <Card key={stock.id} className="gap-2 p-3">
+                {product?.image_url ? (
+                  <img
+                    src={product.image_url}
+                    alt=""
+                    className="aspect-square w-full rounded-md border object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden'
+                    }}
+                  />
+                ) : (
+                  <div className="aspect-square w-full rounded-md border bg-muted" />
+                )}
+                <p className="truncate text-sm font-medium">{productName}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {variant ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      {color && (
+                        <span
+                          className="inline-block size-3 shrink-0 rounded-full border"
+                          style={{ backgroundColor: color.hex_code }}
+                        />
+                      )}
+                      {variant}
+                    </span>
+                  ) : (
+                    'Sin variante'
+                  )}
+                  {branchName ? ` · ${branchName}` : ''}
+                </p>
+                <p className="text-sm font-semibold">{stock.quantity} unidades</p>
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setPendingAdjustment({ stockId: stock.id, delta: -1, productName })}
+                    disabled={stock.quantity <= 0}
+                  >
+                    <Minus className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setPendingAdjustment({ stockId: stock.id, delta: 1, productName })}
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete(stock.id)}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-sm text-muted-foreground">Sin stock cargado</p>
+        )
       ) : (
         <Table>
           <TableHeader>
@@ -458,34 +544,5 @@ export function StockPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
-}
-
-function SortableHead({
-  label,
-  active,
-  dir,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  dir: 'asc' | 'desc'
-  onClick: () => void
-}) {
-  return (
-    <TableHead>
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'flex items-center gap-1 text-xs font-medium uppercase',
-          active ? 'text-foreground' : 'text-muted-foreground',
-        )}
-      >
-        {label}
-        {active &&
-          (dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
-      </button>
-    </TableHead>
   )
 }

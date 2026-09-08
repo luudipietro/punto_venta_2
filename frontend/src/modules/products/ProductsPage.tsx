@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { LayoutGrid, List, Pencil, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SortableHead } from '@/components/SortableHead'
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,36 @@ export function ProductsPage() {
   const [form, setForm] = useState<ProductInput>(emptyInput)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [search, setSearch] = useState('')
+  const [sortField, setSortField] = useState<'name' | 'category' | 'brand' | 'cost' | 'price'>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  function toggleSort(field: typeof sortField) {
+    if (field === sortField) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+  }
+
+  const visibleProducts = useMemo(() => {
+    if (!products) return []
+    const term = search.trim().toLowerCase()
+    const filtered = term ? products.filter((product) => product.name.toLowerCase().includes(term)) : products
+    const categoryName = (id: number | null) => categories?.find((c) => c.id === id)?.name ?? ''
+    const brandName = (id: number | null) => brands?.find((b) => b.id === id)?.name ?? ''
+    const sorted = [...filtered].sort((a, b) => {
+      let comparison = 0
+      if (sortField === 'name') comparison = a.name.localeCompare(b.name)
+      else if (sortField === 'category') comparison = categoryName(a.category_id).localeCompare(categoryName(b.category_id))
+      else if (sortField === 'brand') comparison = brandName(a.brand_id).localeCompare(brandName(b.brand_id))
+      else if (sortField === 'cost') comparison = a.cost - b.cost
+      else comparison = a.price - b.price
+      return sortDir === 'asc' ? comparison : -comparison
+    })
+    return sorted
+  }, [products, categories, brands, search, sortField, sortDir])
 
   async function handleImageFile(file: File | undefined) {
     if (!file) return
@@ -347,12 +378,21 @@ export function ProductsPage() {
         }
       />
 
+      <div className="mb-3">
+        <Input
+          placeholder="Buscar por nombre..."
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="max-w-64"
+        />
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando...</p>
       ) : viewMode === 'grid' ? (
-        products?.length ? (
+        visibleProducts.length ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {products.map((product) => {
+            {visibleProducts.map((product) => {
               const { price: gridDisplayPrice, method: gridMethod } = resolveDisplayPrice(
                 product.price,
                 selectedPaymentMethodId,
@@ -401,17 +441,17 @@ export function ProductsPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-14" />
-              <TableHead>Nombre</TableHead>
-              <TableHead>Categoría</TableHead>
-              <TableHead>Marca</TableHead>
-              <TableHead>Costo</TableHead>
-              <TableHead>Precio</TableHead>
+              <SortableHead label="Nombre" active={sortField === 'name'} dir={sortDir} onClick={() => toggleSort('name')} />
+              <SortableHead label="Categoría" active={sortField === 'category'} dir={sortDir} onClick={() => toggleSort('category')} />
+              <SortableHead label="Marca" active={sortField === 'brand'} dir={sortDir} onClick={() => toggleSort('brand')} />
+              <SortableHead label="Costo" active={sortField === 'cost'} dir={sortDir} onClick={() => toggleSort('cost')} />
+              <SortableHead label="Precio" active={sortField === 'price'} dir={sortDir} onClick={() => toggleSort('price')} />
               <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {products?.length ? (
-              products.map((product) => {
+            {visibleProducts.length ? (
+              visibleProducts.map((product) => {
                 const { price: rowDisplayPrice, method: rowMethod } = resolveDisplayPrice(
                   product.price,
                   selectedPaymentMethodId,

@@ -287,8 +287,8 @@ function drawTag(
   if (vertical) {
     const maxTextWidth = width * 0.86
 
-    drawFooter(ctx, cx, y0 + height * 0.09, width * 0.88, ref * 0.05)
-    separator(doc, lineX1, lineX2, y0 + height * 0.15, borderRgb)
+    drawFooter(ctx, cx, y0 + height * 0.1, width * 0.88, ref * 0.068)
+    separator(doc, lineX1, lineX2, y0 + height * 0.17, borderRgb)
 
     const { lines: nameLines, size: nameSize } = fitText(
       doc,
@@ -353,7 +353,7 @@ function drawTag(
     doc.setLineWidth(0.35)
     doc.line(x0 + width * 0.51, y0 + height * 0.16, x0 + width * 0.51, y0 + height * 0.84)
 
-    drawFooter(ctx, cx, y0 + height * 0.12, width * 0.5, ref * 0.075)
+    drawFooter(ctx, cx, y0 + height * 0.13, width * 0.5, ref * 0.1)
 
     const { lines: nameLines, size: nameSize } = fitText(
       doc,

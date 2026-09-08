@@ -256,7 +256,7 @@ export function PromotionsPage() {
                   <Label htmlFor="promo-name">Nombre</Label>
                   <Input id="promo-name" value={name} onChange={(event) => setName(event.target.value)} />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="start-date">Desde</Label>
                     <Input
@@ -304,7 +304,7 @@ export function PromotionsPage() {
                     </p>
                   )}
                   {targetPriceMode && (
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="grid gap-1.5">
                         <Label htmlFor="target-price">Precio final del combo</Label>
                         <Input
@@ -337,14 +337,14 @@ export function PromotionsPage() {
                 <div className="flex flex-col gap-3">
                   {items.map((item) => (
                     <div key={item.key} className="grid gap-2 rounded-md border p-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Select
                           value={item.targetType}
                           onValueChange={(value) =>
                             updateItem(item.key, { targetType: value as 'product' | 'category' })
                           }
                         >
-                          <SelectTrigger className="w-32">
+                          <SelectTrigger className="w-full sm:w-32">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
