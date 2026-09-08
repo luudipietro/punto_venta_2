@@ -863,6 +863,29 @@ nothing charted anything before this). Two things worth knowing if you touch thi
   hand-picked emerald/rose/amber were used instead, matching the emerald-for-positive-amounts
   convention already used elsewhere (`CartPanel.tsx`'s promotion-discount line).
 
+## Add-to-cart feedback (sale picker)
+
+Tapping a product used to silently update `CartPanel.tsx` with no visual acknowledgement at either
+end — easy to miss, especially the destination side which isn't always in a cashier's direct line
+of sight while tapping products. Two small, independent animations now fire on every `addLine`:
+
+- **`ProductPicker.tsx`**: the tapped `Card` gets a quick "press" — `scale-95 border-primary` for
+  200ms (`poppedProductId` state, cleared via `setTimeout`), via Tailwind's own `transition-
+  [transform,colors]`, no custom keyframes needed. Triggered from inside `addVariant()` itself
+  (not the raw click handler), so it fires identically whether a single-variant card was clicked
+  directly or a variant was chosen from its dropdown menu.
+- **`CartPanel.tsx`**: the line that was just added or incremented flashes emerald-then-transparent
+  for 700ms (`.animate-cart-line-added`, a real `@keyframes` in `index.css` — deliberately *not*
+  using `animation-fill-mode: forwards`, so the background reverts to the line's own normal style
+  once the animation ends rather than getting stuck). Driven by two new `cartStore.ts` fields:
+  `lastAddedStockId` (which line) and a monotonic `lastAddedToken` (bumped on every `addLine` call,
+  even one that only incremented an existing line's quantity) — `CartPanel` keys its highlight
+  effect off the *token*, not the stockId alone, specifically so tapping the same product twice in
+  a row re-triggers the flash instead of silently no-op'ing because the stockId "didn't change".
+- Both are deliberately separate, uncoordinated animations (no shared state, no orchestration) —
+  simplest way to give feedback at both the tap location and the destination line without needing
+  either component to know about the other.
+
 ## Sale confirmation and PDF receipt
 
 Confirming a sale is now a two-step dialog flow in `SalePage.tsx`, not a single button press:

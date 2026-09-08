@@ -19,6 +19,11 @@ interface CartState {
   lines: CartLine[]
   discount: number
   discountReason: string
+  /** Which line to flash in CartPanel.tsx, and a monotonic counter so the
+   * flash re-triggers even when the same stockId is added again right
+   * after the previous flash finished — see CartPanel.tsx's effect. */
+  lastAddedStockId: number | null
+  lastAddedToken: number
   setBranch: (branchId: number | null) => void
   addLine: (line: Omit<CartLine, 'quantity'>) => void
   setQuantity: (stockId: number, quantity: number) => void
@@ -33,6 +38,8 @@ export const useCartStore = create<CartState>((set) => ({
   lines: [],
   discount: 0,
   discountReason: '',
+  lastAddedStockId: null,
+  lastAddedToken: 0,
 
   setBranch: (branchId) => set({ branchId, lines: [] }),
 
@@ -45,10 +52,16 @@ export const useCartStore = create<CartState>((set) => ({
           lines: state.lines.map((item) =>
             item.stockId === line.stockId ? { ...item, quantity } : item,
           ),
+          lastAddedStockId: line.stockId,
+          lastAddedToken: state.lastAddedToken + 1,
         }
       }
       if (line.availableQuantity < 1) return state
-      return { lines: [...state.lines, { ...line, quantity: 1 }] }
+      return {
+        lines: [...state.lines, { ...line, quantity: 1 }],
+        lastAddedStockId: line.stockId,
+        lastAddedToken: state.lastAddedToken + 1,
+      }
     }),
 
   setQuantity: (stockId, quantity) =>

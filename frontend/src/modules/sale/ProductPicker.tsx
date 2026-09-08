@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { formatCurrency } from '@/lib/format'
 import { resolveDisplayPrice, priceColorClass } from '@/lib/pricingDisplay'
+import { cn } from '@/lib/utils'
 import { useSaleCatalog, type SaleCatalogEntry } from '@/modules/sale/useSaleCatalog'
 import { useCartStore } from '@/modules/sale/cartStore'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
@@ -27,6 +28,7 @@ interface ProductGroup {
 
 export function ProductPicker({ branchId }: { branchId: number | null }) {
   const [search, setSearch] = useState('')
+  const [poppedProductId, setPoppedProductId] = useState<number | null>(null)
   const { entries, isLoading } = useSaleCatalog(branchId)
   const addLine = useCartStore((state) => state.addLine)
   const { data: paymentMethods } = usePaymentMethods()
@@ -69,6 +71,15 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
       unitPrice: entry.unitPrice,
       availableQuantity: entry.availableQuantity,
     })
+    // Quick "press" feedback on the card itself, in addition to CartPanel's
+    // own flash on the destination line — ties the animation to the actual
+    // add rather than the click location, so it fires the same way whether
+    // the card was clicked directly or a variant was chosen from its dropdown.
+    setPoppedProductId(entry.productId)
+    window.setTimeout(
+      () => setPoppedProductId((current) => (current === entry.productId ? null : current)),
+      200,
+    )
   }
 
   if (branchId === null) {
@@ -104,7 +115,10 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                 role="button"
                 tabIndex={0}
                 onClick={group.variants.length === 1 ? () => addVariant(group.variants[0]) : undefined}
-                className="cursor-pointer gap-2 p-3 transition-colors hover:border-primary"
+                className={cn(
+                  'cursor-pointer gap-2 p-3 transition-[transform,colors] duration-200 hover:border-primary',
+                  group.productId === poppedProductId && 'scale-95 border-primary',
+                )}
               >
                 {group.imageUrl ? (
                   <img

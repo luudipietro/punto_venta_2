@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { formatCurrency } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import { useCartStore } from '@/modules/sale/cartStore'
 import { PromotionDetail } from '@/modules/promotions/PromotionDetail'
 import { Minus, Plus, Trash2 } from 'lucide-react'
@@ -22,8 +23,17 @@ function round2(value: number): number {
 }
 
 export function CartPanel({ preview, previewLoading }: CartPanelProps) {
-  const { lines, discount, discountReason, setQuantity, removeLine, setDiscount, setDiscountReason } =
-    useCartStore()
+  const {
+    lines,
+    discount,
+    discountReason,
+    setQuantity,
+    removeLine,
+    setDiscount,
+    setDiscountReason,
+    lastAddedStockId,
+    lastAddedToken,
+  } = useCartStore()
 
   const fallbackSubtotal = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
   const subtotal = preview?.subtotal ?? fallbackSubtotal
@@ -31,6 +41,20 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
   const [discountMode, setDiscountMode] = useState<DiscountMode>('amount')
   const [discountRawValue, setDiscountRawValue] = useState(0)
   const [detailPromotionId, setDetailPromotionId] = useState<number | null>(null)
+  const [flashedStockId, setFlashedStockId] = useState<number | null>(null)
+
+  // Briefly highlights whichever line was just added/incremented, so adding
+  // a product reads as "something just happened" beyond the list quietly
+  // updating — keyed off `lastAddedToken` (not just the stockId) so it
+  // re-triggers even when the same product is tapped again in quick
+  // succession, right after the previous flash already cleared.
+  useEffect(() => {
+    if (lastAddedStockId === null) return
+    setFlashedStockId(lastAddedStockId)
+    const timeout = window.setTimeout(() => setFlashedStockId(null), 700)
+    return () => window.clearTimeout(timeout)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAddedToken])
 
   const appliedPromotionIds = Array.from(
     new Set(
@@ -84,7 +108,10 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
           {lines.map((line) => (
             <div
               key={line.stockId}
-              className="flex flex-wrap items-center gap-2 rounded-md border p-2.5"
+              className={cn(
+                'flex flex-wrap items-center gap-2 rounded-md border p-2.5',
+                line.stockId === flashedStockId && 'animate-cart-line-added',
+              )}
             >
               <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
                 {line.imageUrl ? (

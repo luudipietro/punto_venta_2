@@ -128,3 +128,22 @@
     @apply font-sans;
     }
 }
+
+/* Brief highlight on a CartPanel line right after it's added/incremented —
+   see cartStore.ts's lastAddedStockId/lastAddedToken. Emerald, matching the
+   "positive/added" color convention already used for promotion discounts
+   elsewhere in this app. No animation-fill-mode set on purpose: the
+   background must revert to the line's own normal style once this ends,
+   not stay stuck at the keyframe's final value. */
+@keyframes cart-line-added {
+  0% {
+    background-color: rgba(16, 185, 129, 0.28);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-cart-line-added {
+  animation: cart-line-added 700ms ease-out;
+}
