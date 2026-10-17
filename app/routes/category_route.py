@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, status
 
 from app.core.auth import require_admin
 from app.domain.category import Category
-from app.schemas.category_schema import CategoryCreate, CategoryRead
+from app.schemas.category_schema import (
+    CategoryCreate,
+    CategoryProductsSet,
+    CategoryRead,
+)
 from app.services.category_service import CategoryService, get_category_service
 
 router = APIRouter(prefix="/categories", tags=["Categories"])
@@ -43,3 +47,16 @@ async def delete_category(
     category_id: int, service: CategoryService = Depends(get_category_service)
 ) -> None:
     await service.delete(category_id)
+
+
+@router.put(
+    "/{category_id}/products",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
+async def set_category_products(
+    category_id: int,
+    payload: CategoryProductsSet,
+    service: CategoryService = Depends(get_category_service),
+) -> None:
+    await service.set_products(category_id, payload.product_ids)

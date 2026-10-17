@@ -3,6 +3,7 @@ import { useProducts } from '@/hooks/useProducts'
 import { useStocks } from '@/hooks/useStocks'
 import { useColors } from '@/hooks/useColors'
 import { useSizes } from '@/hooks/useSizes'
+import { getMediaUrl } from '@/lib/media'
 
 export interface StockOption {
   stockId: number
@@ -61,7 +62,7 @@ export function useStockOptions(branchId?: number | null) {
           colorName: color?.name ?? null,
           sizeLabel,
           colorHex: color?.hex_code ?? null,
-          imageUrl: product.image_url,
+          imageUrl: getMediaUrl(product.image_url) || null,
           label,
         }
       })

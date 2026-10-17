@@ -5,6 +5,7 @@ import { useCartUiStore } from '@/stores/cartUiStore'
 import { useCartPreview } from '@/hooks/useCartPreview'
 import { formatCurrency, formatPriceOrConsult } from '@/lib/format'
 import { buildCartWhatsAppUrl } from '@/lib/whatsapp'
+import { getMediaUrl } from '@/api/client'
 
 interface Props {
   whatsappNumber: string | null
@@ -74,7 +75,7 @@ export function CartSidebar({ whatsappNumber }: Props) {
                   <div className="size-16 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
                     {line.imageUrl && (
                       <img
-                        src={line.imageUrl}
+                        src={getMediaUrl(line.imageUrl)}
                         alt=""
                         className="size-full object-cover"
                         onError={(event) => {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Minus, Plus, ShoppingCart } from 'lucide-react'
 import type { StorefrontVariant } from '@/api/storefront'
 import { useStorefrontProducts } from '@/hooks/useStorefrontProducts'
@@ -7,6 +7,7 @@ import { formatPriceOrConsult } from '@/lib/format'
 import { useCartStore } from '@/stores/cartStore'
 import { useCartUiStore } from '@/stores/cartUiStore'
 import { getMediaUrl } from '@/api/client'
+import { ImageViewer } from '@/components/ImageViewer'
 
 /** `null` when the variant carries no color/size info at all (a product
  * with a single, plain stock row) — nothing worth showing on a cart line. */
@@ -20,17 +21,30 @@ export function ProductPage() {
   const addLine = useCartStore((state) => state.addLine)
   const openCart = useCartUiStore((state) => state.open)
 
+  const navigate = useNavigate()
   const product = products?.find((p) => p.id === Number(id))
 
   const [selectedVariant, setSelectedVariant] = useState<StorefrontVariant | null>(null)
   const [quantity, setQuantity] = useState(1)
-  const [mainImage, setMainImage] = useState<string | null>(null)
+  const [imageIndex, setImageIndex] = useState(0)
+
+  // Cover first, then the extra gallery photos; deduped in case the cover is
+  // also in the gallery.
+  const gallery = useMemo(() => {
+    if (!product) return []
+    const urls = [product.image_url, ...product.gallery_urls].map((url) => getMediaUrl(url))
+    return Array.from(new Set(urls.filter(Boolean)))
+  }, [product])
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [id])
 
   useEffect(() => {
     if (!product) return
     setSelectedVariant(product.variants[0] ?? null)
     setQuantity(1)
-    setMainImage(getMediaUrl(product.image_url) ?? getMediaUrl(product.gallery_urls[0]) ?? null)
+    setImageIndex(0)
   }, [product])
 
   if (isLoading) {
@@ -48,9 +62,12 @@ export function ProductPage() {
     )
   }
 
-  const gallery = [product.image_url, ...product.gallery_urls].filter(
-    (url): url is string => !!url,
-  )
+  // Back to wherever the customer came from (keeps the catalog's filters,
+  // sort and scroll position); a direct deep link falls back to "/".
+  function goBack() {
+    if (window.history.state?.idx > 0) navigate(-1)
+    else navigate('/')
+  }
   const hasVariantChoice = product.variants.length > 1
   const hasVariants = product.variants.length > 0
   const canAdd = product.in_stock && (!hasVariants || selectedVariant !== null)
@@ -63,7 +80,7 @@ export function ProductPage() {
         key: `${product.id}:${selectedVariant?.stock_id ?? 'none'}`,
         productId: product.id,
         productName: product.name,
-        imageUrl: getMediaUrl(product.image_url),
+        imageUrl: gallery[0] ?? '',
         price: product.price,
         variantLabel: selectedVariant ? variantLabel(selectedVariant) : null,
       },
@@ -74,33 +91,32 @@ export function ProductPage() {
 
   return (
     <div className="w-full mx-auto py-6  lg:px-20">
-      <Link
-        to="/"
+      <button
+        onClick={goBack}
         className="mb-4 inline-flex items-center gap-1 text-xl text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="size-4" />
         Volver al catálogo
-      </Link>
+      </button>
 
       <div className="grid gap-8 md:grid-cols-2 pt-10">
         <div>
           <div className="aspect-square w-80/100 mx-auto overflow-hidden rounded-xl border border-border bg-muted">
-            {mainImage ? (
-              <img src={mainImage} alt={product.name} className="size-full object-cover" />
-            ) : (
-              <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
-                Sin imagen
-              </div>
-            )}
+            <ImageViewer
+              images={gallery}
+              index={Math.min(imageIndex, Math.max(gallery.length - 1, 0))}
+              onIndexChange={setImageIndex}
+              alt={product.name}
+            />
           </div>
           {gallery.length > 1 && (
             <div className="mt-3 flex gap-2 overflow-x-auto">
-              {gallery.map((url) => (
+              {gallery.map((url, i) => (
                 <button
                   key={url}
-                  onClick={() => setMainImage(url)}
-                  className={`size-16 shrink-0 overflow-hidden rounded-lg border-2 ${
-                    mainImage === url ? 'border-primary' : 'border-transparent'
+                  onClick={() => setImageIndex(i)}
+                  className={`size-16 shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${
+                    imageIndex === i ? 'border-primary' : 'border-transparent'
                   }`}
                 >
                   <img src={url} alt="" className="size-full object-cover" />

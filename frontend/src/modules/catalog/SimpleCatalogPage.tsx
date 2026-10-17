@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PageHeader } from '@/components/PageHeader'
@@ -47,6 +47,8 @@ interface SimpleCatalogPageProps<TRead extends WithId, TInput extends object> {
    * historical stock/sales records misleading (Color, Size, Brand,
    * Category). Defaults to true. */
   allowEdit?: boolean
+  /** Extra per-row action buttons, rendered before Editar/Eliminar. */
+  renderRowActions?: (item: TRead) => ReactNode
 }
 
 /** Generic list+create+edit+delete screen for the simple name-only (or
@@ -63,6 +65,7 @@ export function SimpleCatalogPage<TRead extends WithId, TInput extends object>({
   useUpdate,
   useRemove,
   allowEdit = true,
+  renderRowActions,
 }: SimpleCatalogPageProps<TRead, TInput>) {
   const { data: items, isLoading } = useList()
   const createMutation = useCreate()
@@ -202,6 +205,7 @@ export function SimpleCatalogPage<TRead extends WithId, TInput extends object>({
                     </TableCell>
                   ))}
                   <TableCell className="flex justify-end gap-1">
+                    {renderRowActions?.(item)}
                     {allowEdit && (
                       <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)}>
                         <Pencil className="size-4" />

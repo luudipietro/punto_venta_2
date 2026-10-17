@@ -153,7 +153,7 @@ export function SalePage() {
           <ProductPicker branchId={branchId} />
         </div>
 
-        <Card className="flex flex-col gap-4 p-4 lg:sticky lg:top-4 lg:self-start">
+        <Card className="order-first flex flex-col gap-4 p-4 lg:order-none lg:sticky lg:top-4 lg:self-start">
           <CartPanel preview={preview} previewLoading={previewMutation.isPending} />
 
           {lines.length > 0 && (

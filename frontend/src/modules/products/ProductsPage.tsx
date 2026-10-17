@@ -28,6 +28,8 @@ import { ProductGallery } from '@/modules/products/ProductGallery'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { usePricingDisplayStore } from '@/stores/pricingDisplayStore'
 import { PricingDisplaySelector } from '@/components/PricingDisplaySelector'
+import { getMediaUrl } from '@/lib/media'
+import { ProductDetailDialog } from '@/components/ProductDetailDialog'
 
 type ViewMode = 'list' | 'grid'
 
@@ -57,6 +59,7 @@ export function ProductsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<ProductInput>(emptyInput)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
+  const [detailProductId, setDetailProductId] = useState<number | null>(null)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<'name' | 'category' | 'brand' | 'cost' | 'price'>('name')
@@ -162,6 +165,10 @@ export function ProductsPage() {
 
   return (
     <div>
+      <ProductDetailDialog
+        productId={detailProductId}
+        onOpenChange={(open) => !open && setDetailProductId(null)}
+      />
       <PageHeader
         title="Productos"
         action={
@@ -301,7 +308,7 @@ export function ProductsPage() {
                   <div className="flex items-center gap-2">
                     {form.image_url ? (
                       <img
-                        src={form.image_url}
+                        src={getMediaUrl(form.image_url)}
                         alt=""
                         className="size-10 shrink-0 rounded-md border object-cover"
                         onError={(event) => {
@@ -402,17 +409,26 @@ export function ProductsPage() {
               <Card key={product.id} className="gap-2 p-3">
                 {product.image_url ? (
                   <img
-                    src={product.image_url}
+                    src={getMediaUrl(product.image_url)}
                     alt=""
-                    className="aspect-square w-full rounded-md border object-cover"
+                    onClick={() => setDetailProductId(product.id)}
+                    className="aspect-square w-full cursor-pointer rounded-md border object-cover"
                     onError={(event) => {
                       event.currentTarget.style.visibility = 'hidden'
                     }}
                   />
                 ) : (
-                  <div className="aspect-square w-full rounded-md border bg-muted" />
+                  <div
+                    onClick={() => setDetailProductId(product.id)}
+                    className="aspect-square w-full cursor-pointer rounded-md border bg-muted"
+                  />
                 )}
-                <p className="truncate text-sm font-medium">{product.name}</p>
+                <p
+                  onClick={() => setDetailProductId(product.id)}
+                  className="cursor-pointer truncate text-sm font-medium hover:underline"
+                >
+                  {product.name}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {categories?.find((category) => category.id === product.category_id)?.name ?? '-'}
                   {' · '}
@@ -462,9 +478,10 @@ export function ProductsPage() {
                   <TableCell>
                     {product.image_url ? (
                       <img
-                        src={product.image_url}
+                        src={getMediaUrl(product.image_url)}
                         alt=""
-                        className="size-9 rounded-md border object-cover"
+                        onClick={() => setDetailProductId(product.id)}
+                        className="size-9 cursor-pointer rounded-md border object-cover"
                         onError={(event) => {
                           event.currentTarget.style.visibility = 'hidden'
                         }}
@@ -473,7 +490,12 @@ export function ProductsPage() {
                       <div className="size-9 rounded-md border bg-muted" />
                     )}
                   </TableCell>
-                  <TableCell>{product.name}</TableCell>
+                  <TableCell
+                    onClick={() => setDetailProductId(product.id)}
+                    className="cursor-pointer hover:underline"
+                  >
+                    {product.name}
+                  </TableCell>
                   <TableCell>
                     {categories?.find((category) => category.id === product.category_id)?.name ?? '-'}
                   </TableCell>

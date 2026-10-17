@@ -42,6 +42,15 @@ def create_app() -> FastAPI:
     settings.media_root.mkdir(parents=True, exist_ok=True)
     app.mount(settings.media_url, StaticFiles(directory=settings.media_root), name="media")
 
+    # Compat: uploaded-image URLs saved while `API_BASE_URL=/api` (production)
+    # are stored as `/api/media/...`. When such a DB (e.g. a prod backup) runs
+    # locally, there is no Nginx stripping `/api`, so serve the same files here.
+    app.mount(
+        "/api/media",
+        StaticFiles(directory=settings.media_root),
+        name="api-media",
+    )
+
     return app
 
 

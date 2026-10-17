@@ -4,6 +4,7 @@ import type { BrandSettings } from '@/api/brandSettings'
 import { useCartStore } from '@/stores/cartStore'
 import { useCartUiStore } from '@/stores/cartUiStore'
 import { useTheme } from '@/theme/ThemeProvider'
+import { getMediaUrl } from '@/api/client'
 
 export function Navbar({ brand }: { brand: BrandSettings | undefined }) {
   const itemCount = useCartStore((state) => state.lines.reduce((sum, line) => sum + line.quantity, 0))
@@ -35,7 +36,7 @@ export function Navbar({ brand }: { brand: BrandSettings | undefined }) {
         <Link to="/" className="flex shrink-0 items-center gap-2">
           {brand?.logo_url && (
             <img
-              src={brand.logo_url}
+              src={getMediaUrl(brand.logo_url)}
               alt=""
               className="size-9 rounded-md object-contain"
               onError={(event) => {

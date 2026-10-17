@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { brandConfig } from '@/theme/brand.config'
+import { getMediaUrl } from '@/lib/media'
 
 /** Keeps the browser tab's favicon and title in sync with the configured
  * brand — same fallback pattern as everywhere else brand data is read
@@ -18,7 +19,7 @@ export function BrandMetaSync() {
       link.rel = 'icon'
       document.head.appendChild(link)
     }
-    link.href = logoUrl
+    link.href = getMediaUrl(logoUrl)
   }, [logoUrl])
 
   useEffect(() => {
