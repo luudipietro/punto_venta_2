@@ -6,7 +6,6 @@ import { useStorefrontProducts } from '@/hooks/useStorefrontProducts'
 import { formatPriceOrConsult } from '@/lib/format'
 import { useCartStore } from '@/stores/cartStore'
 import { useCartUiStore } from '@/stores/cartUiStore'
-import { getMediaUrl } from '@/api/client'
 
 /** `null` when the variant carries no color/size info at all (a product
  * with a single, plain stock row) — nothing worth showing on a cart line. */
@@ -30,7 +29,7 @@ export function ProductPage() {
     if (!product) return
     setSelectedVariant(product.variants[0] ?? null)
     setQuantity(1)
-    setMainImage(getMediaUrl(product.image_url) ?? getMediaUrl(product.gallery_urls[0]) ?? null)
+    setMainImage(product.image_url ?? product.gallery_urls[0] ?? null)
   }, [product])
 
   if (isLoading) {
@@ -39,7 +38,7 @@ export function ProductPage() {
 
   if (!product) {
     return (
-      <div className="w-full px-20 py-16 text-center sm:px-20 lg:px-20">
+      <div className="w-full px-4 py-16 text-center sm:px-6 lg:px-8">
         <p className="mb-4 text-sm text-muted-foreground">No encontramos ese producto.</p>
         <Link to="/" className="text-sm font-medium text-primary underline">
           Volver al catálogo
@@ -63,7 +62,7 @@ export function ProductPage() {
         key: `${product.id}:${selectedVariant?.stock_id ?? 'none'}`,
         productId: product.id,
         productName: product.name,
-        imageUrl: getMediaUrl(product.image_url),
+        imageUrl: product.image_url,
         price: product.price,
         variantLabel: selectedVariant ? variantLabel(selectedVariant) : null,
       },
@@ -73,18 +72,18 @@ export function ProductPage() {
   }
 
   return (
-    <div className="w-full mx-auto py-6  lg:px-20">
+    <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
       <Link
         to="/"
-        className="mb-4 inline-flex items-center gap-1 text-xl text-muted-foreground hover:text-foreground"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="size-4" />
         Volver al catálogo
       </Link>
 
-      <div className="grid gap-8 md:grid-cols-2 pt-10">
+      <div className="grid gap-8 md:grid-cols-2">
         <div>
-          <div className="aspect-square w-80/100 mx-auto overflow-hidden rounded-xl border border-border bg-muted">
+          <div className="aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted">
             {mainImage ? (
               <img src={mainImage} alt={product.name} className="size-full object-cover" />
             ) : (
@@ -110,7 +109,7 @@ export function ProductPage() {
           )}
         </div>
 
-        <div className='flex flex-col mx-auto lg:mx-0'>
+        <div>
           {product.category_name && (
             <p className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
               {product.category_name}

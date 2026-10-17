@@ -3,27 +3,6 @@
 // directly in dev, matching `frontend/src/api/client.ts`'s default.
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
-export function getMediaUrl(path?: string | null): string {
-  if (!path) return ''
-
-  // Las imágenes que ya tienen URL absoluta se mantienen igual.
-  if (/^https?:\/\//i.test(path)) {
-    return path
-  }
-
-  // Las rutas relativas se resuelven contra el backend configurado.
-  const base = API_BASE_URL.replace(/\/+$/, '')
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-
-   // Si la ruta ya comienza con la base, no la agregamos otra vez.
-  if (base && (normalizedPath === base || normalizedPath.startsWith(`${base}/`))) {
-    return normalizedPath
-  }
-
-
-  return `${base}${normalizedPath}`
-}
-
 export class ApiError extends Error {
   status: number
 

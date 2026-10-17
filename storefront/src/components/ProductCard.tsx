@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { StorefrontProduct } from '@/api/storefront'
 import { formatPriceOrConsult } from '@/lib/format'
-import { getMediaUrl } from '@/api/client'
 
 export function ProductCard({ product }: { product: StorefrontProduct }) {
   return (
@@ -12,7 +11,7 @@ export function ProductCard({ product }: { product: StorefrontProduct }) {
       <div className="aspect-square w-full overflow-hidden bg-muted">
         {product.image_url ? (
           <img
-            src={getMediaUrl(product.image_url)}
+            src={product.image_url}
             alt={product.name}
             loading="lazy"
             decoding="async"
