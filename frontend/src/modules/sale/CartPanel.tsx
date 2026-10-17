@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SalePreviewRead } from '@/api/sale'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -41,6 +41,7 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
   const [discountMode, setDiscountMode] = useState<DiscountMode>('amount')
   const [discountRawValue, setDiscountRawValue] = useState(0)
   const [detailPromotionId, setDetailPromotionId] = useState<number | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const [flashedStockId, setFlashedStockId] = useState<number | null>(null)
 
   // Briefly highlights whichever line was just added/incremented, so adding
@@ -51,6 +52,9 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
   useEffect(() => {
     if (lastAddedStockId === null) return
     setFlashedStockId(lastAddedStockId)
+    listRef.current
+      ?.querySelector(`[data-stock-id="${lastAddedStockId}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     const timeout = window.setTimeout(() => setFlashedStockId(null), 700)
     return () => window.clearTimeout(timeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,10 +108,11 @@ export function CartPanel({ preview, previewLoading }: CartPanelProps) {
       {lines.length === 0 ? (
         <p className="text-sm text-muted-foreground">El carrito está vacío. Tocá un producto para agregarlo.</p>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div ref={listRef} className="flex flex-col gap-2 lg:max-h-[45vh] lg:overflow-y-auto lg:pr-1">
           {lines.map((line) => (
             <div
               key={line.stockId}
+              data-stock-id={line.stockId}
               className={cn(
                 'flex flex-wrap items-center gap-2 rounded-md border p-2.5',
                 line.stockId === flashedStockId && 'animate-cart-line-added',

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ProductFormDialog } from '@/components/ProductFormDialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { useProducts } from '@/hooks/useProducts'
@@ -34,6 +36,7 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
   const { data: colors } = useColors()
   const { data: sizes } = useSizes()
   const [index, setIndex] = useState(0)
+  const [editing, setEditing] = useState(false)
 
   const product = products?.find((p) => p.id === productId)
 
@@ -54,10 +57,22 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+    {isAdmin && (
+      <ProductFormDialog open={editing} onOpenChange={setEditing} product={product ?? null} />
+    )}
+    <Dialog open={open && !editing} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{product?.name ?? 'Producto'}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {product?.name ?? 'Producto'}
+            {isAdmin && product && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditing(true)}>
+                <Pencil className="size-3.5" />
+                Editar
+              </Button>
+            )}
+          </DialogTitle>
         </DialogHeader>
         {product && (
           <div className="grid gap-4 md:grid-cols-2">
@@ -170,5 +185,6 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
         )}
       </DialogContent>
     </Dialog>
+    </>
   )
 }

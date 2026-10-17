@@ -221,7 +221,7 @@ export function Layout() {
             </Button>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
+        <div data-app-scroll className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
           <Outlet />
         </div>
       </main>

@@ -17,7 +17,10 @@ import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { usePricingDisplayStore } from '@/stores/pricingDisplayStore'
 import { PricingDisplaySelector } from '@/components/PricingDisplaySelector'
 import { ProductDetailDialog } from '@/components/ProductDetailDialog'
-import { Info } from 'lucide-react'
+import { Info, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ProductFormDialog } from '@/components/ProductFormDialog'
+import { useAuthStore } from '@/stores/authStore'
 
 interface ProductGroup {
   productId: number
@@ -31,6 +34,8 @@ interface ProductGroup {
 export function ProductPicker({ branchId }: { branchId: number | null }) {
   const [search, setSearch] = useState('')
   const [detailProductId, setDetailProductId] = useState<number | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const [poppedProductId, setPoppedProductId] = useState<number | null>(null)
   const { entries, isLoading } = useSaleCatalog(branchId)
   const addLine = useCartStore((state) => state.addLine)
@@ -95,6 +100,7 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
         productId={detailProductId}
         onOpenChange={(open) => !open && setDetailProductId(null)}
       />
+      <ProductFormDialog open={createOpen} onOpenChange={setCreateOpen} product={null} />
       <div className="mb-3 flex gap-2">
         <Input
           placeholder="Buscar producto..."
@@ -103,6 +109,12 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
           className="flex-1"
         />
         <PricingDisplaySelector />
+        {isAdmin && (
+          <Button type="button" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            <span className="hidden sm:inline">Nuevo producto</span>
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
