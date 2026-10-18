@@ -17,6 +17,7 @@ import { formatCurrency } from '@/lib/format'
 import { generateLineKey } from '@/lib/id'
 import { downloadPriceTagsPdf, SHEET_LAYOUTS, type PriceTagItem } from '@/lib/priceTags'
 import { brandConfig } from '@/theme/brand.config'
+import { getMediaUrl } from '@/lib/media'
 
 interface Selection {
   copies: number
@@ -165,7 +166,7 @@ export function PriceTagsPage() {
   async function handleGenerate() {
     setGenerating(true)
     try {
-      await downloadPriceTagsPdf({ companyName, logoUrl, layout, items: selectedItems, primaryColor })
+      await downloadPriceTagsPdf({ companyName, logoUrl: getMediaUrl(logoUrl), layout, items: selectedItems, primaryColor })
       toast.success('PDF de carteles generado')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo generar el PDF')
@@ -211,6 +212,7 @@ export function PriceTagsPage() {
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando productos...</p>
       ) : (
+        <div className="max-h-[55vh] overflow-y-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -287,6 +289,7 @@ export function PriceTagsPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       )}
 
       <PageHeader
@@ -370,7 +373,7 @@ export function PriceTagsPage() {
         </Table>
       )}
 
-      <Card className="mt-4 flex flex-wrap items-center justify-between gap-3 p-4">
+      <Card className="sticky bottom-2 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 p-4">
         <p className="text-sm text-muted-foreground">
           {totalTags} cartel{totalTags === 1 ? '' : 'es'} — {totalSheets} hoja{totalSheets === 1 ? '' : 's'} A4
         </p>

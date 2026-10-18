@@ -33,6 +33,7 @@ import { useTheme } from '@/theme/ThemeProvider'
 import { useAuthStore } from '@/stores/authStore'
 import { useBranches } from '@/hooks/useBranches'
 import { useBrandSettings } from '@/hooks/useBrandSettings'
+import { getMediaUrl } from '@/lib/media'
 
 const primaryNav = [
   { to: '/venta', label: 'Venta', icon: ShoppingCart },
@@ -103,7 +104,7 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-4">
-        <img src={logoUrl} alt="" className="size-7 text-primary" />
+        <img src={getMediaUrl(logoUrl)} alt="" className="size-7 text-primary" />
         <span className="font-semibold tracking-tight">{companyName}</span>
       </div>
 
@@ -220,7 +221,7 @@ export function Layout() {
             </Button>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
+        <div data-app-scroll className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">
           <Outlet />
         </div>
       </main>

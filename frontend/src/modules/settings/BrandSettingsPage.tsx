@@ -11,6 +11,7 @@ import { useBrandSettings, useUpdateBrandSettings } from '@/hooks/useBrandSettin
 import { cssColorToHex, fromApiColorSet, toApiColorSet } from '@/lib/color'
 import { brandConfig, type BrandColorSet } from '@/theme/brand.config'
 import { LogoCropDialog } from '@/modules/settings/LogoCropDialog'
+import { getMediaUrl } from '@/lib/media'
 
 type ColorToken = keyof BrandColorSet
 
@@ -157,7 +158,7 @@ export function BrandSettingsPage() {
             <div className="flex items-center gap-3">
               {logoUrl && (
                 <img
-                  src={logoUrl}
+                  src={getMediaUrl(logoUrl)}
                   alt=""
                   className="size-12 rounded-md border object-contain p-1"
                   onError={(event) => {
@@ -206,7 +207,7 @@ export function BrandSettingsPage() {
               {heroImages.map((url, index) => (
                 <li key={url} className="flex items-center gap-2 rounded-md border p-2">
                   <img
-                    src={url}
+                    src={getMediaUrl(url)}
                     alt=""
                     className="h-12 w-20 shrink-0 rounded object-cover"
                     onError={(event) => {

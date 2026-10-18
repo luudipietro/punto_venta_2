@@ -35,6 +35,8 @@ import { useSizes } from '@/hooks/useSizes'
 import { useCreateStock, useDecreaseStock, useDeleteStock, useIncreaseStock, useStocks } from '@/hooks/useStocks'
 import { useAuthStore } from '@/stores/authStore'
 import type { Stock, StockInput } from '@/api/stock'
+import { getMediaUrl } from '@/lib/media'
+import { ProductDetailDialog } from '@/components/ProductDetailDialog'
 
 type ViewMode = 'list' | 'grid'
 
@@ -60,6 +62,7 @@ export function StockPage() {
   const decreaseMutation = useDecreaseStock()
 
   const [open, setOpen] = useState(false)
+  const [detailProductId, setDetailProductId] = useState<number | null>(null)
   const [form, setForm] = useState<StockInput>(emptyInput)
   const [pendingAdjustment, setPendingAdjustment] = useState<{
     stockId: number
@@ -190,6 +193,10 @@ export function StockPage() {
 
   return (
     <div>
+      <ProductDetailDialog
+        productId={detailProductId}
+        onOpenChange={(open) => !open && setDetailProductId(null)}
+      />
       <PageHeader
         title="Stock"
         action={
@@ -348,9 +355,10 @@ export function StockPage() {
               <Card key={stock.id} className="gap-2 p-3">
                 {product?.image_url ? (
                   <img
-                    src={product.image_url}
+                    src={getMediaUrl(product.image_url)}
                     alt=""
-                    className="aspect-square w-full rounded-md border object-cover"
+                    onClick={() => setDetailProductId(product.id)}
+                    className="aspect-square w-full cursor-pointer rounded-md border object-cover"
                     onError={(event) => {
                       event.currentTarget.style.visibility = 'hidden'
                     }}
@@ -358,7 +366,12 @@ export function StockPage() {
                 ) : (
                   <div className="aspect-square w-full rounded-md border bg-muted" />
                 )}
-                <p className="truncate text-sm font-medium">{productName}</p>
+                <p
+                  onClick={() => product && setDetailProductId(product.id)}
+                  className="cursor-pointer truncate text-sm font-medium hover:underline"
+                >
+                  {productName}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {variant ? (
                     <span className="inline-flex items-center gap-1.5">
@@ -436,9 +449,10 @@ export function StockPage() {
                   <TableCell>
                     {product?.image_url ? (
                       <img
-                        src={product.image_url}
+                        src={getMediaUrl(product.image_url)}
                         alt=""
-                        className="size-9 rounded-md border object-cover"
+                        onClick={() => setDetailProductId(product.id)}
+                        className="size-9 cursor-pointer rounded-md border object-cover"
                         onError={(event) => {
                           event.currentTarget.style.visibility = 'hidden'
                         }}
@@ -447,7 +461,12 @@ export function StockPage() {
                       <div className="size-9 rounded-md border bg-muted" />
                     )}
                   </TableCell>
-                  <TableCell>{productName}</TableCell>
+                  <TableCell
+                    onClick={() => product && setDetailProductId(product.id)}
+                    className="cursor-pointer hover:underline"
+                  >
+                    {productName}
+                  </TableCell>
                   <TableCell>
                     {variant ? (
                       <span className="inline-flex items-center gap-1.5">

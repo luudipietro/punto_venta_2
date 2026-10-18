@@ -1,4 +1,5 @@
 import { Outlet } from 'react-router-dom'
+import { BrandMetaSync } from '@/components/BrandMetaSync'
 import { Navbar } from '@/components/Navbar'
 import { CartSidebar } from '@/components/CartSidebar'
 import { useBrandSettings } from '@/hooks/useBrandSettings'
@@ -13,6 +14,7 @@ export function Layout() {
   return (
     <ThemeProvider colors={brand?.colors}>
       <div className="min-h-screen bg-background text-foreground">
+        <BrandMetaSync brand={brand} />
         <Navbar brand={brand} />
         <Outlet />
         <CartSidebar whatsappNumber={brand?.whatsapp_number ?? null} />

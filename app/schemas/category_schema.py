@@ -14,3 +14,7 @@ class CategoryRead(CategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class CategoryProductsSet(BaseModel):
+    product_ids: list[int]

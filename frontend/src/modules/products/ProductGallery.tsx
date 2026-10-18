@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { uploadProductImage } from '@/api/product'
 import { useAddProductImage, useProductImages, useRemoveProductImage } from '@/hooks/useProductImages'
+import { getMediaUrl } from '@/lib/media'
 
 /** Extra photos for a product's future e-commerce listing, separate from the
  * cover image (`Product.image_url`) used everywhere else in the POS. Only
@@ -45,7 +46,7 @@ export function ProductGallery({ productId }: { productId: number }) {
           {images.map((image) => (
             <div key={image.id} className="group relative">
               <img
-                src={image.url}
+                src={getMediaUrl(image.url)}
                 alt=""
                 className="aspect-square w-full rounded-md border object-cover"
                 onError={(event) => {

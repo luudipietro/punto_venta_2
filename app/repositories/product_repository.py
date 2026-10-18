@@ -21,6 +21,9 @@ class ProductRepository(ABC):
     @abstractmethod
     async def delete(self, product_id: int) -> None: ...
 
+    @abstractmethod
+    async def set_category(self, product_id: int, category_id: int | None) -> None: ...
+
 
 class SqlAlchemyProductRepository(SqlAlchemyRepository[ProductModel], ProductRepository):
     model = ProductModel
@@ -66,6 +69,12 @@ class SqlAlchemyProductRepository(SqlAlchemyRepository[ProductModel], ProductRep
         model = await self._get_model(product_id)
         if model is not None:
             await self._delete_model(model)
+
+    async def set_category(self, product_id: int, category_id: int | None) -> None:
+        model = await self._get_model(product_id)
+        if model is not None:
+            model.category_id = category_id
+            await self._session.flush()
 
     @staticmethod
     def _to_domain(model: ProductModel) -> Product:

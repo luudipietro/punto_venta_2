@@ -32,7 +32,8 @@ import type { SalePreviewRead } from '@/api/sale'
 
 export function SalePage() {
   const { data: paymentMethods } = usePaymentMethods()
-  const { branchId, lines, discount, discountReason, setBranch, clear } = useCartStore()
+  const { branchId, lines, discount, discountReason, setBranch, clear, lastAddedToken } =
+    useCartStore()
   const activeBranchId = useAuthStore((s) => s.activeBranchId)
   const [payments, setPayments] = useState<PaymentLine[]>([])
   const [preview, setPreview] = useState<SalePreviewRead>()
@@ -54,6 +55,15 @@ export function SalePage() {
       setBranch(activeBranchId)
     }
   }, [activeBranchId, branchId, setBranch])
+
+  // Below `lg` the cart sits above the product list, so after tapping a
+  // product jump back to the top where the cart is. On desktop the cart is
+  // sticky beside the list and always visible, so no scrolling is needed.
+  useEffect(() => {
+    if (lastAddedToken === 0) return
+    if (window.matchMedia('(min-width: 1024px)').matches) return
+    document.querySelector('[data-app-scroll]')?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [lastAddedToken])
 
   const debouncedLines = useDebouncedValue(lines, 400)
   const debouncedDiscount = useDebouncedValue(discount, 400)
@@ -153,7 +163,7 @@ export function SalePage() {
           <ProductPicker branchId={branchId} />
         </div>
 
-        <Card className="flex flex-col gap-4 p-4 lg:sticky lg:top-4 lg:self-start">
+        <Card className="order-first flex flex-col gap-4 p-4 lg:order-none lg:sticky lg:top-4 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto">
           <CartPanel preview={preview} previewLoading={previewMutation.isPending} />
 
           {lines.length > 0 && (

@@ -1240,6 +1240,42 @@ now, which is strictly simpler to build/own than an external platform integratio
   restart. Watch for this same symptom any time a new dependency is added to either frontend while
   its dev server is already up.
 
+## Media URLs, product card, category products, storefront catalog UX
+
+- **Stored image URLs are environment-dependent, so they're resolved at render time.** In production
+  `API_BASE_URL` is `/api`, so `uploadProductImage()` stores `/api/media/...`; loading a prod backup
+  into a local DB (no Nginx stripping `/api`) left every image broken. Fixes: (1) `app/main.py` mounts
+  the media `StaticFiles` a second time at `/api/media` (compat only — `Settings.media_url` stays
+  `/media`); (2) both frontends have a `getMediaUrl()` (`frontend/src/lib/media.ts`,
+  `storefront/src/api/client.ts`) — absolute/`data:`/`blob:` URLs pass through, `/media/...`,
+  `/api/media/...` and bare `media/...` get `API_BASE_URL` prepended (never doubled), any other `/...`
+  path (e.g. the static `/brand/logo.svg`) is left alone. It returns `''` for empty input, so chain
+  fallbacks with `||`, never `??` (that was a real bug in `ProductPage`). Applied at the source for
+  catalog hooks (`useSaleCatalog`, `useStockOptions` -> cart, sale/purchase/exchange panels) and
+  at every direct `<img>`/favicon/logo/hero/price-tag-logo use. **Form fields keep the raw stored
+  value** (only rendering resolves), so saving never rewrites URLs.
+- **Storefront favicon/title**: `storefront/src/components/BrandMetaSync.tsx` (mounted in `Layout`)
+  sets `<link rel="icon">` (with a `type` derived from the extension) and `document.title` from
+  `BrandSettings.logo_url`/`company_name`; the static `index.html` ones remain until settings load.
+- **Product card (admin)**: `frontend/src/components/ProductDetailDialog.tsx` — read-only dialog with
+  cover + gallery (arrows/thumbnails), price, category/brand, description, storefront flags, cost
+  (admin only) and per-branch/variant stock. Opened by clicking the image/name in `ProductsPage` and
+  `StockPage` (grid and list), and by a small "i" button on `ProductPicker` cards (the card click
+  itself adds to cart, so it needs its own trigger; `stopPropagation` on pointerdown too because
+  multi-variant cards are a Radix dropdown trigger).
+- **Products per category**: `PUT /categories/{id}/products` (admin) with `{product_ids}` sets the
+  category's membership exactly (`CategoryService.set_products`; `ProductRepository.set_category`).
+  A product has one category, so listing one moves it; unlisted current members become uncategorized.
+  This is the one write allowed on categories besides create/delete — renaming is still locked.
+  UI: `CategoryProductsDialog.tsx` via `SimpleCatalogPage`'s new `renderRowActions` prop.
+- **Storefront catalog UX** (`pages/HomePage.tsx`): sort (`sort` URL param: price asc/desc, name A-Z /
+  Z-A; hidden-price products always last), client-side "Ver más productos" pagination (12 per batch
+  over the already-loaded list — the endpoint still returns everything), and back-navigation
+  restoration: visible count + `scrollY` are saved to `sessionStorage` on unmount and restored only on
+  a history POP with the same filters. `ProductPage`'s back button uses `navigate(-1)` when there's
+  history. Product photos use `components/ImageViewer.tsx` (sliding track, side arrows, <-/-> keys,
+  touch swipe) synced with the thumbnail strip.
+
 ## Database
 
 PostgreSQL via `asyncpg`, but all access goes through SQLAlchemy — no raw SQL, no engine-specific

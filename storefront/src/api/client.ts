@@ -3,6 +3,25 @@
 // directly in dev, matching `frontend/src/api/client.ts`'s default.
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
+/** Resolves a stored media URL to something loadable from the current
+ * environment. Stored values come in several shapes (the DB may be a prod
+ * backup saved with `API_BASE_URL=/api`): absolute / `data:` / `blob:` URLs
+ * are kept as-is; backend-served paths (`/media/x.jpg`, `/api/media/x.jpg`,
+ * bare `media/x.jpg`) are resolved against `API_BASE_URL` without doubling
+ * its prefix; any other `/...` path is this app's own static asset. Returns
+ * `''` for an empty value — use `||`, not `??`, to chain fallbacks. */
+export function getMediaUrl(path?: string | null): string {
+  if (!path) return ''
+  if (/^(https?:|data:|blob:)/i.test(path)) return path
+
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  const base = API_BASE_URL.replace(/\/+$/, '')
+
+  if (base && (normalized === base || normalized.startsWith(`${base}/`))) return normalized
+  const isBackendPath = /^\/(api\/)?media\//.test(normalized) || !path.startsWith('/')
+  return isBackendPath ? `${base}${normalized}` : normalized
+}
+
 export class ApiError extends Error {
   status: number
 

@@ -6,6 +6,7 @@ import {
   useUpdateCategory,
 } from '@/hooks/useCategories'
 import type { Category, CategoryInput } from '@/api/category'
+import { CategoryProductsDialog } from '@/modules/catalog/CategoryProductsDialog'
 
 export function CategoriesPage() {
   return (
@@ -22,6 +23,7 @@ export function CategoriesPage() {
       useUpdate={useUpdateCategory}
       useRemove={useDeleteCategory}
       allowEdit={false}
+      renderRowActions={(category) => <CategoryProductsDialog category={category} />}
     />
   )
 }

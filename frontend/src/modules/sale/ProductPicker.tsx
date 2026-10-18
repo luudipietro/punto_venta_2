@@ -16,6 +16,11 @@ import { useCartStore } from '@/modules/sale/cartStore'
 import { usePaymentMethods } from '@/hooks/usePaymentMethods'
 import { usePricingDisplayStore } from '@/stores/pricingDisplayStore'
 import { PricingDisplaySelector } from '@/components/PricingDisplaySelector'
+import { ProductDetailDialog } from '@/components/ProductDetailDialog'
+import { Info, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { ProductFormDialog } from '@/components/ProductFormDialog'
+import { useAuthStore } from '@/stores/authStore'
 
 interface ProductGroup {
   productId: number
@@ -28,6 +33,9 @@ interface ProductGroup {
 
 export function ProductPicker({ branchId }: { branchId: number | null }) {
   const [search, setSearch] = useState('')
+  const [detailProductId, setDetailProductId] = useState<number | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const [poppedProductId, setPoppedProductId] = useState<number | null>(null)
   const { entries, isLoading } = useSaleCatalog(branchId)
   const addLine = useCartStore((state) => state.addLine)
@@ -88,6 +96,11 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
 
   return (
     <div>
+      <ProductDetailDialog
+        productId={detailProductId}
+        onOpenChange={(open) => !open && setDetailProductId(null)}
+      />
+      <ProductFormDialog open={createOpen} onOpenChange={setCreateOpen} product={null} />
       <div className="mb-3 flex gap-2">
         <Input
           placeholder="Buscar producto..."
@@ -96,6 +109,12 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
           className="flex-1"
         />
         <PricingDisplaySelector />
+        {isAdmin && (
+          <Button type="button" variant="outline" className="gap-1.5" onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            <span className="hidden sm:inline">Nuevo producto</span>
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -116,10 +135,22 @@ export function ProductPicker({ branchId }: { branchId: number | null }) {
                 tabIndex={0}
                 onClick={group.variants.length === 1 ? () => addVariant(group.variants[0]) : undefined}
                 className={cn(
-                  'cursor-pointer gap-2 p-3 transition-[transform,colors] duration-200 hover:border-primary',
+                  'relative cursor-pointer gap-2 p-3 transition-[transform,colors] duration-200 hover:border-primary',
                   group.productId === poppedProductId && 'scale-95 border-primary',
                 )}
               >
+                <button
+                  type="button"
+                  aria-label="Ver ficha del producto"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setDetailProductId(group.productId)
+                  }}
+                  className="absolute top-2 right-2 z-10 rounded-full bg-background/80 p-1 shadow hover:bg-background"
+                >
+                  <Info className="size-4" />
+                </button>
                 {group.imageUrl ? (
                   <img
                     src={group.imageUrl}
