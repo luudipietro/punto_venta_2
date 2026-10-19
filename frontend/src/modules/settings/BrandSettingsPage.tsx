@@ -12,6 +12,7 @@ import { cssColorToHex, fromApiColorSet, toApiColorSet } from '@/lib/color'
 import { brandConfig, type BrandColorSet } from '@/theme/brand.config'
 import { LogoCropDialog } from '@/modules/settings/LogoCropDialog'
 import { getMediaUrl } from '@/lib/media'
+import { HERO_COMPRESS_OPTIONS } from '@/lib/image'
 
 type ColorToken = keyof BrandColorSet
 
@@ -106,7 +107,7 @@ export function BrandSettingsPage() {
     if (!file) return
     setUploadingHero(true)
     try {
-      const url = await uploadProductImage(file)
+      const url = await uploadProductImage(file, HERO_COMPRESS_OPTIONS)
       setHeroImages((prev) => [...prev, url])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo subir la imagen')
