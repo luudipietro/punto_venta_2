@@ -27,4 +27,5 @@ async def update_brand_settings(
         colors,
         payload.whatsapp_number,
         payload.hero_images,
+        payload.social_links,
     )

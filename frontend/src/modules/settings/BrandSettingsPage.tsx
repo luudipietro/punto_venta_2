@@ -41,6 +41,13 @@ function defaultsAsHex(theme: 'light' | 'dark'): BrandColorSet {
   return result
 }
 
+const SOCIAL_NETWORKS = [
+  { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/tu_cuenta' },
+  { key: 'facebook', label: 'Facebook', placeholder: 'https://facebook.com/tu_pagina' },
+  { key: 'tiktok', label: 'TikTok', placeholder: 'https://tiktok.com/@tu_cuenta' },
+  { key: 'youtube', label: 'YouTube', placeholder: 'https://youtube.com/@tu_canal' },
+] as const
+
 export function BrandSettingsPage() {
   const { data: settings, isLoading } = useBrandSettings()
   const updateMutation = useUpdateBrandSettings()
@@ -49,6 +56,7 @@ export function BrandSettingsPage() {
   const [logoUrl, setLogoUrl] = useState('')
   const [whatsappNumber, setWhatsappNumber] = useState('')
   const [heroImages, setHeroImages] = useState<string[]>([])
+  const [socialLinks, setSocialLinks] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
   const [uploadingHero, setUploadingHero] = useState(false)
   const [lightColors, setLightColors] = useState<BrandColorSet | null>(null)
@@ -61,6 +69,7 @@ export function BrandSettingsPage() {
       setLogoUrl(settings.logo_url)
       setWhatsappNumber(settings.whatsapp_number ?? '')
       setHeroImages(settings.hero_images ?? [])
+      setSocialLinks(settings.social_links ?? {})
       setLightColors(
         settings.colors?.light ? fromApiColorSet(settings.colors.light) : defaultsAsHex('light'),
       )
@@ -129,6 +138,11 @@ export function BrandSettingsPage() {
         colors: { light: toApiColorSet(lightColors), dark: toApiColorSet(darkColors) },
         whatsapp_number: whatsappNumber.trim() || null,
         hero_images: heroImages,
+        social_links: Object.fromEntries(
+          Object.entries(socialLinks)
+            .map(([network, url]) => [network, url.trim()])
+            .filter(([, url]) => url),
+        ),
       })
       toast.success('Configuración guardada')
     } catch (error) {
@@ -191,6 +205,31 @@ export function BrandSettingsPage() {
               catálogo online para el botón "Pedir por WhatsApp".
             </p>
           </div>
+          <div className="grid gap-3">
+            <div>
+              <Label>Redes sociales</Label>
+              <p className="text-xs text-muted-foreground">
+                Se muestran como íconos en la barra superior del catálogo online. Las que dejes
+                vacías no aparecen.
+              </p>
+            </div>
+            {SOCIAL_NETWORKS.map(({ key, label, placeholder }) => (
+              <div key={key} className="grid gap-1.5">
+                <Label htmlFor={`social-${key}`} className="text-xs text-muted-foreground">
+                  {label}
+                </Label>
+                <Input
+                  id={`social-${key}`}
+                  type="url"
+                  placeholder={placeholder}
+                  value={socialLinks[key] ?? ''}
+                  onChange={(event) =>
+                    setSocialLinks((prev) => ({ ...prev, [key]: event.target.value }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -214,7 +253,9 @@ export function BrandSettingsPage() {
                       event.currentTarget.style.visibility = 'hidden'
                     }}
                   />
-                  <span className="flex-1 truncate text-xs text-muted-foreground">{url}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {url.split('/').pop()}
+                  </span>
                   <Button
                     type="button"
                     variant="ghost"
@@ -233,7 +274,14 @@ export function BrandSettingsPage() {
                   >
                     <ChevronDown className="size-4" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeHeroImage(index)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    aria-label="Quitar imagen"
+                    onClick={() => removeHeroImage(index)}
+                  >
                     <X className="size-4" />
                   </Button>
                 </li>

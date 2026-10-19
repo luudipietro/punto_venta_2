@@ -5,6 +5,7 @@ import { useCartStore } from '@/stores/cartStore'
 import { useCartUiStore } from '@/stores/cartUiStore'
 import { useTheme } from '@/theme/ThemeProvider'
 import { getMediaUrl } from '@/api/client'
+import { SOCIAL_NETWORKS } from '@/components/SocialIcons'
 
 export function Navbar({ brand }: { brand: BrandSettings | undefined }) {
   const itemCount = useCartStore((state) => state.lines.reduce((sum, line) => sum + line.quantity, 0))
@@ -27,6 +28,8 @@ export function Navbar({ brand }: { brand: BrandSettings | undefined }) {
       navigate(value ? `/?q=${encodeURIComponent(value)}` : '/')
     }
   }
+
+  const socialLinks = SOCIAL_NETWORKS.filter(({ key }) => brand?.social_links?.[key])
 
   const searchValue = location.pathname === '/' ? (searchParams.get('q') ?? '') : ''
 
@@ -58,6 +61,23 @@ export function Navbar({ brand }: { brand: BrandSettings | undefined }) {
             className="w-full rounded-lg border border-border bg-background py-2 pr-3 pl-9 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
+
+        {socialLinks.length > 0 && (
+          <div className="hidden shrink-0 items-center gap-0.5 sm:flex">
+            {socialLinks.map(({ key, label, Icon }) => (
+              <a
+                key={key}
+                href={brand?.social_links?.[key]}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={label}
+                className="rounded-full p-2 hover:bg-accent"
+              >
+                <Icon className="size-5" />
+              </a>
+            ))}
+          </div>
+        )}
 
         <button
           onClick={toggleTheme}

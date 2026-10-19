@@ -26,6 +26,7 @@ class BrandSettingsService:
         colors: dict | None = None,
         whatsapp_number: str | None = None,
         hero_images: list[str] | None = None,
+        social_links: dict[str, str] | None = None,
     ) -> BrandSettings:
         previous = await self._repository.get()
         updated = await self._repository.upsert(
@@ -35,6 +36,7 @@ class BrandSettingsService:
                 colors=colors,
                 whatsapp_number=whatsapp_number,
                 hero_images=hero_images,
+                social_links=social_links,
             )
         )
         if previous and previous.logo_url != updated.logo_url:
