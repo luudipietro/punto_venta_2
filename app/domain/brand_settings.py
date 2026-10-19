@@ -17,4 +17,8 @@ class BrandSettings:
     # carousel. Presentation data, not a business invariant — same reasoning
     # as `colors` above.
     hero_images: list[str] | None = None
+    # {"instagram": url, "facebook": url, "tiktok": url, "youtube": url}; only
+    # the networks the admin filled in are present. WhatsApp is not here — it
+    # already has its own `whatsapp_number`.
+    social_links: dict[str, str] | None = None
     id: int = 1

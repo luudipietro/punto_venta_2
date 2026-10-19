@@ -16,7 +16,10 @@ wheels/
 # Locally uploaded media (product images, etc.)
 /media/
 /marca/
+/docs/
 
 # Product enrichment working files
 /data_enrichment/images/
 /data_enrichment/fotos/
+/data_enrichment/
+/scripts/

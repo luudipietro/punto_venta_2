@@ -32,7 +32,7 @@ export function HeroCarousel({ images }: { images: string[] }) {
   if (images.length === 1) {
     return (
       <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
-        <img src={images[0]} alt="" className="aspect-[21/9] w-full rounded-xl object-cover" />
+        <img src={images[0]} alt="" className="aspect-[16/9] w-full rounded-xl object-cover md:aspect-[3/1]" />
       </div>
     )
   }
@@ -40,7 +40,7 @@ export function HeroCarousel({ images }: { images: string[] }) {
   return (
     <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
       <div
-        className="group relative aspect-[21/9] w-full overflow-hidden rounded-xl"
+        className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl md:aspect-[3/1]"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >

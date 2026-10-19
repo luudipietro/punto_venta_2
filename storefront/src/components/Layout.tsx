@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { BrandMetaSync } from '@/components/BrandMetaSync'
 import { Navbar } from '@/components/Navbar'
+import { WhatsAppButton } from '@/components/WhatsAppButton'
 import { CartSidebar } from '@/components/CartSidebar'
 import { useBrandSettings } from '@/hooks/useBrandSettings'
 import { ThemeProvider } from '@/theme/ThemeProvider'
@@ -17,6 +18,7 @@ export function Layout() {
         <BrandMetaSync brand={brand} />
         <Navbar brand={brand} />
         <Outlet />
+        <WhatsAppButton phoneNumber={brand?.whatsapp_number ?? null} />
         <CartSidebar whatsappNumber={brand?.whatsapp_number ?? null} />
       </div>
     </ThemeProvider>

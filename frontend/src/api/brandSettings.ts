@@ -30,6 +30,8 @@ export interface BrandSettings {
   colors?: ApiColors | null
   whatsapp_number?: string | null
   hero_images?: string[] | null
+  /** Keys: instagram | facebook | tiktok | youtube. */
+  social_links?: Record<string, string> | null
 }
 
 export const brandSettingsApi = {

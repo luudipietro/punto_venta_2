@@ -29,6 +29,7 @@ class BrandSettingsUpdate(BaseModel):
     colors: BrandColors | None = None
     whatsapp_number: str | None = None
     hero_images: list[str] | None = None
+    social_links: dict[str, str] | None = None
 
 
 class BrandSettingsRead(BaseModel):
@@ -37,3 +38,4 @@ class BrandSettingsRead(BaseModel):
     colors: BrandColors | None = None
     whatsapp_number: str | None = None
     hero_images: list[str] | None = None
+    social_links: dict[str, str] | None = None
