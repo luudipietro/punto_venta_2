@@ -69,6 +69,7 @@ export function StockPage() {
     delta: 1 | -1
     productName: string
   } | null>(null)
+  const [adjustAmount, setAdjustAmount] = useState(1)
   const [duplicateStock, setDuplicateStock] = useState<Stock | null>(null)
 
   const [search, setSearch] = useState('')
@@ -178,12 +179,19 @@ export function StockPage() {
     }
   }
 
+  function openAdjustment(adjustment: NonNullable<typeof pendingAdjustment>) {
+    setAdjustAmount(1)
+    setPendingAdjustment(adjustment)
+  }
+
   async function confirmPendingAdjustment() {
     if (!pendingAdjustment) return
     const { stockId, delta } = pendingAdjustment
+    const amount = Math.floor(adjustAmount)
+    if (!(amount >= 1)) return
     try {
-      if (delta === 1) await increaseMutation.mutateAsync({ id: stockId, amount: 1 })
-      else await decreaseMutation.mutateAsync({ id: stockId, amount: 1 })
+      if (delta === 1) await increaseMutation.mutateAsync({ id: stockId, amount })
+      else await decreaseMutation.mutateAsync({ id: stockId, amount })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Ocurrió un error')
     } finally {
@@ -393,7 +401,7 @@ export function StockPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setPendingAdjustment({ stockId: stock.id, delta: -1, productName })}
+                    onClick={() => openAdjustment({ stockId: stock.id, delta: -1, productName })}
                     disabled={stock.quantity <= 0}
                   >
                     <Minus className="size-4" />
@@ -401,7 +409,7 @@ export function StockPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => setPendingAdjustment({ stockId: stock.id, delta: 1, productName })}
+                    onClick={() => openAdjustment({ stockId: stock.id, delta: 1, productName })}
                   >
                     <Plus className="size-4" />
                   </Button>
@@ -489,7 +497,7 @@ export function StockPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() =>
-                        setPendingAdjustment({ stockId: stock.id, delta: -1, productName })
+                        openAdjustment({ stockId: stock.id, delta: -1, productName })
                       }
                       disabled={stock.quantity <= 0}
                     >
@@ -499,7 +507,7 @@ export function StockPage() {
                       variant="ghost"
                       size="icon"
                       onClick={() =>
-                        setPendingAdjustment({ stockId: stock.id, delta: 1, productName })
+                        openAdjustment({ stockId: stock.id, delta: 1, productName })
                       }
                     >
                       <Plus className="size-4" />
@@ -528,17 +536,34 @@ export function StockPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {pendingAdjustment?.delta === 1 ? 'Sumar' : 'Restar'} 1 unidad
+              {pendingAdjustment?.delta === 1 ? 'Sumar' : 'Restar'} stock
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingAdjustment?.delta === 1
-                ? `Se va a sumar 1 unidad de stock a "${pendingAdjustment?.productName}".`
-                : `Se va a restar 1 unidad de stock a "${pendingAdjustment?.productName}".`}
+                ? `Se va a sumar stock a "${pendingAdjustment?.productName}".`
+                : `Se va a restar stock a "${pendingAdjustment?.productName}".`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="adjust-amount">Cantidad</Label>
+            <Input
+              id="adjust-amount"
+              type="number"
+              min={1}
+              step={1}
+              autoFocus
+              value={adjustAmount || ''}
+              onChange={(event) => setAdjustAmount(Number(event.target.value))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') confirmPendingAdjustment()
+              }}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPendingAdjustment}>Confirmar</AlertDialogAction>
+            <AlertDialogAction onClick={confirmPendingAdjustment} disabled={!(adjustAmount >= 1)}>
+              Confirmar
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

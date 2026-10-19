@@ -18,6 +18,7 @@ import { useColors } from '@/hooks/useColors'
 import { useSizes } from '@/hooks/useSizes'
 import { useCreateProduct, useUpdateProduct } from '@/hooks/useProducts'
 import { useCreateStock } from '@/hooks/useStocks'
+import { CurrencyInput } from '@/components/CurrencyInput'
 import { uploadProductImage } from '@/api/product'
 import type { Product, ProductInput } from '@/api/product'
 import { ProductGallery } from '@/modules/products/ProductGallery'
@@ -210,26 +211,18 @@ export function ProductFormDialog({ open, onOpenChange, product, onSaved }: Prop
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-1.5">
               <Label htmlFor="cost">Costo</Label>
-              <Input
+              <CurrencyInput
                 id="cost"
-                type="number"
-                min={0}
-                value={form.cost || ''}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, cost: Number(event.target.value) || 0 }))
-                }
+                value={form.cost}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, cost: value }))}
               />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="price">Precio</Label>
-              <Input
+              <CurrencyInput
                 id="price"
-                type="number"
-                min={0}
-                value={form.price || ''}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, price: Number(event.target.value) || 0 }))
-                }
+                value={form.price}
+                onValueChange={(value) => setForm((prev) => ({ ...prev, price: value }))}
               />
             </div>
           </div>

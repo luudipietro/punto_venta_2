@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { CurrencyInput } from '@/components/CurrencyInput'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -131,23 +132,11 @@ export function ProductQuickCreateDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-1.5">
               <Label htmlFor="quick-product-cost">Costo</Label>
-              <Input
-                id="quick-product-cost"
-                type="number"
-                min={0}
-                value={cost || ''}
-                onChange={(event) => setCost(Number(event.target.value) || 0)}
-              />
+              <CurrencyInput id="quick-product-cost" value={cost} onValueChange={setCost} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="quick-product-price">Precio</Label>
-              <Input
-                id="quick-product-price"
-                type="number"
-                min={0}
-                value={price || ''}
-                onChange={(event) => setPrice(Number(event.target.value) || 0)}
-              />
+              <CurrencyInput id="quick-product-price" value={price} onValueChange={setPrice} />
             </div>
           </div>
         </div>
