@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Minus, Plus, ShoppingCart } from 'lucide-react'
+import { ChevronLeft, Minus, Play, Plus, ShoppingCart } from 'lucide-react'
 import type { StorefrontVariant } from '@/api/storefront'
 import { useStorefrontProducts } from '@/hooks/useStorefrontProducts'
 import { formatPriceOrConsult } from '@/lib/format'
 import { useCartStore } from '@/stores/cartStore'
 import { useCartUiStore } from '@/stores/cartUiStore'
-import { getMediaUrl } from '@/api/client'
+import { getMediaUrl, getPosterUrl, isVideoUrl } from '@/api/client'
 import { ImageViewer } from '@/components/ImageViewer'
 
 /** `null` when the variant carries no color/size info at all (a product
@@ -28,8 +28,8 @@ export function ProductPage() {
   const [quantity, setQuantity] = useState(1)
   const [imageIndex, setImageIndex] = useState(0)
 
-  // Cover first, then the extra gallery photos; deduped in case the cover is
-  // also in the gallery.
+  // Cover first, then the extra gallery photos and videos; deduped in case the
+  // cover is also in the gallery.
   const gallery = useMemo(() => {
     if (!product) return []
     const urls = [product.image_url, ...product.gallery_urls].map((url) => getMediaUrl(url))
@@ -75,12 +75,15 @@ export function ProductPage() {
 
   function handleAddToCart() {
     if (!product || !canAdd) return
+    // The cart shows a picture: the first photo, or else a video's poster.
+    const cartImage =
+      gallery.find((url) => !isVideoUrl(url)) ?? (gallery[0] ? getPosterUrl(gallery[0]) : '')
     addLine(
       {
         key: `${product.id}:${selectedVariant?.stock_id ?? 'none'}`,
         productId: product.id,
         productName: product.name,
-        imageUrl: gallery[0] ?? '',
+        imageUrl: cartImage,
         price: product.price,
         variantLabel: selectedVariant ? variantLabel(selectedVariant) : null,
       },
@@ -115,11 +118,23 @@ export function ProductPage() {
                 <button
                   key={url}
                   onClick={() => setImageIndex(i)}
-                  className={`size-16 shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${
+                  aria-label={`Ver ${isVideoUrl(url) ? 'video' : 'foto'} ${i + 1}`}
+                  className={`relative size-16 shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${
                     imageIndex === i ? 'border-primary' : 'border-transparent'
                   }`}
                 >
-                  <img src={url} alt="" className="size-full object-cover" />
+                  <img
+                    src={isVideoUrl(url) ? getPosterUrl(url) : url}
+                    alt=""
+                    className="size-full object-cover"
+                  />
+                  {isVideoUrl(url) && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="rounded-full bg-black/60 p-1.5 text-white">
+                        <Play className="size-3 fill-current" />
+                      </span>
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

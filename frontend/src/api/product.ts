@@ -43,6 +43,19 @@ export async function uploadProductImage(
   return `${API_BASE_URL}${url}`
 }
 
+// Mirrors `MAX_VIDEO_UPLOAD_SIZE` in `app/routes/upload_route.py` — checked
+// here too so an oversized file fails before spending minutes uploading it.
+const MAX_VIDEO_BYTES = 150 * 1024 * 1024
+
+/** For the places that accept photos and videos alike (product gallery, hero
+ * carousel). A video is sent as-is: the backend converts and compresses it. */
+export async function uploadMedia(file: File, compressOptions?: CompressOptions): Promise<string> {
+  if (!file.type.startsWith('video/')) return uploadProductImage(file, compressOptions)
+  if (file.size > MAX_VIDEO_BYTES) throw new Error('El video debe pesar 150MB o menos')
+  const { url } = await apiClient.upload<{ url: string }>('/uploads/videos', file)
+  return `${API_BASE_URL}${url}`
+}
+
 /** A product's extra gallery images (beyond the cover `image_url`) — a
  * separate collection so a future e-commerce frontend can show more than
  * one photo per product. */

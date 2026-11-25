@@ -22,6 +22,16 @@ export function getMediaUrl(path?: string | null): string {
   return isBackendPath ? `${base}${normalized}` : normalized
 }
 
+/** Uploaded videos are always stored as `.mp4` (the backend converts them),
+ * with a poster of the same name next to them. */
+export function isVideoUrl(url: string): boolean {
+  return /\.mp4$/i.test(url)
+}
+
+export function getPosterUrl(videoUrl: string): string {
+  return videoUrl.replace(/\.mp4$/i, '.jpg')
+}
+
 export class ApiError extends Error {
   status: number
 

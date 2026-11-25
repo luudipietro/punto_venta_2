@@ -1276,6 +1276,37 @@ now, which is strictly simpler to build/own than an external platform integratio
   history. Product photos use `components/ImageViewer.tsx` (sliding track, side arrows, <-/-> keys,
   touch swipe) synced with the thumbnail strip.
 
+## Videos in the catalog
+
+The product gallery and the hero carousel accept videos through the same file inputs as photos.
+**No schema change**: a video is just another URL in `product_images.url` /
+`brand_settings.hero_images`, recognized by its `.mp4` extension (`isVideoUrl()` in both frontends),
+with its poster at the same path ending in `.jpg` (`getPosterUrl()`). The product **cover**
+(`Product.image_url`) stays image-only — the POS, cart, receipts and price tags all render it as a
+picture.
+
+- `POST /uploads/videos` (**admin-only**, unlike `/uploads/images`) accepts mp4/mov/webm/3gp up to
+  150MB and 2 minutes, and **always re-encodes** (`app/core/video.py`) to H.264/AAC MP4, longest
+  side 1280px, ≤30fps, `faststart`, metadata (incl. phone GPS) stripped, saved under
+  `media/videos/`. ffmpeg is the binary bundled in the **`imageio-ffmpeg`** dependency — nothing to
+  install on the host or in the Dockerfile.
+- Keep two things when touching the conversion: it runs via `subprocess.run` in
+  `asyncio.to_thread` (asyncio subprocesses fail under Uvicorn `--reload` on Windows), and the
+  input demuxer is forced from the declared content type with `-protocol_whitelist file`, so a
+  playlist disguised as a video can't make ffmpeg read server files.
+- One conversion at a time (semaphore); the request blocks until it finishes. The size limit lives
+  in three places that must agree: `upload_route.py`, `frontend/src/api/product.ts`, and Nginx
+  (`frontend/nginx.conf` **and** the host Nginx, see `docs/NUEVO_CLIENTE_VPS.md`), which also needs
+  the 300s read timeout.
+- `delete_media_file()` removes a video's poster along with it. It also now resolves the
+  `/api/media/...` form production stores — before this, replacing/removing media in production
+  never deleted the file.
+- Storefront playback is **tap-to-play** (`components/VideoPlayer.tsx`, shared by `HeroCarousel`
+  and `ImageViewer`): `preload="none"` so only the poster downloads, one video at a time, stops when
+  its slide is left, and the hero holds its auto-advance while a video is being watched.
+- iPhone Safari needs HTTP Range support to play video; Starlette's `StaticFiles` provides it
+  (covered by a test). Not handled: HDR phone footage isn't tone-mapped and may look washed out.
+
 ## Database
 
 PostgreSQL via `asyncpg`, but all access goes through SQLAlchemy — no raw SQL, no engine-specific
