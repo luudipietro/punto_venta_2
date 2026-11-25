@@ -8,7 +8,7 @@ export function CategoryFilter({ categories, selectedCategory, onCategoryChange 
   if (categories.length === 0) return null
 
   return (
-    <div className="flex w-full gap-2 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">
+    <div className="flex w-full gap-2 overflow-x-auto px-3 py-3 sm:px-6 lg:px-8">
       <FilterChip
         label="Todas"
         active={selectedCategory === null}
