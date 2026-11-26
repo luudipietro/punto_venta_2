@@ -1301,9 +1301,14 @@ picture.
 - `delete_media_file()` removes a video's poster along with it. It also now resolves the
   `/api/media/...` form production stores — before this, replacing/removing media in production
   never deleted the file.
-- Storefront playback is **tap-to-play** (`components/VideoPlayer.tsx`, shared by `HeroCarousel`
-  and `ImageViewer`): `preload="none"` so only the poster downloads, one video at a time, stops when
-  its slide is left, and the hero holds its auto-advance while a video is being watched.
+- Storefront playback is **tap-to-play** (`components/VideoPlayer.tsx`, shared by `HeroCarousel`,
+  `ImageViewer` and `ProductCard`): `preload="none"` so only the poster downloads, one video at a
+  time, stops when its slide is left, pauses when scrolled off-screen, and the hero holds its
+  auto-advance while a video is being watched.
+- A grid card whose gallery has a video plays its **first** video in place: only the round button
+  plays (`smallButton`), the rest of the picture and the text open the product. That's why the card
+  is an `<article>` with separate picture/text links rather than one wrapping `<Link>`. Its picture
+  is the cover, else a gallery photo, else the video's poster.
 - iPhone Safari needs HTTP Range support to play video; Starlette's `StaticFiles` provides it
   (covered by a test). Not handled: HDR phone footage isn't tone-mapped and may look washed out.
 

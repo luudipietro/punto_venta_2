@@ -8,15 +8,29 @@ interface Props {
    * back the next time it's shown. */
   active: boolean
   label: string
+  /** Shown until played, instead of the video's own poster. */
+  poster?: string
+  /** Only the round button starts playback, leaving the rest of the area to
+   * whatever sits there (the product card's link). */
+  smallButton?: boolean
   /** True from the tap on play until the video ends or its slide is left —
    * pausing in between doesn't count as done. */
   onStartedChange?: (started: boolean) => void
 }
 
+const MIN_VISIBLE_RATIO = 0.25
+
 /** Tap-to-play video. Only the poster is downloaded until the customer asks
  * for it (`preload="none"`), so a catalog full of videos costs no extra mobile
  * data, and starting one pauses any other. */
-export function VideoPlayer({ src, active, label, onStartedChange }: Props) {
+export function VideoPlayer({
+  src,
+  active,
+  label,
+  poster,
+  smallButton,
+  onStartedChange,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [started, setStarted] = useState(false)
 
@@ -48,12 +62,30 @@ export function VideoPlayer({ src, active, label, onStartedChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, started])
 
+  // Scrolled away: pause, so it isn't heard from somewhere off-screen.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!started || !video) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const fullscreen =
+          document.fullscreenElement === video ||
+          (video as { webkitDisplayingFullscreen?: boolean } & HTMLVideoElement)
+            .webkitDisplayingFullscreen
+        if (entry.intersectionRatio < MIN_VISIBLE_RATIO && !fullscreen) video.pause()
+      },
+      { threshold: [0, MIN_VISIBLE_RATIO] },
+    )
+    observer.observe(video)
+    return () => observer.disconnect()
+  }, [started])
+
   return (
     <div className="relative size-full shrink-0">
       <video
         ref={videoRef}
         src={src}
-        poster={getPosterUrl(src)}
+        poster={poster || getPosterUrl(src)}
         preload="none"
         playsInline
         controls={started}
@@ -71,7 +103,9 @@ export function VideoPlayer({ src, active, label, onStartedChange }: Props) {
           onClick={() => void videoRef.current?.play().catch(() => {})}
           tabIndex={active ? 0 : -1}
           aria-label="Reproducir video"
-          className="absolute inset-0 flex items-center justify-center"
+          className={`absolute z-10 flex items-center justify-center ${
+            smallButton ? 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2' : 'inset-0'
+          }`}
         >
           <span className="flex size-14 items-center justify-center rounded-full bg-black/55 text-white shadow-lg">
             <Play className="ml-0.5 size-7 fill-current" />
