@@ -53,3 +53,40 @@ def test_delete_media_file_is_a_no_op_when_file_already_missing(
     monkeypatch.setattr(media, "get_settings", lambda: _settings(tmp_path))
 
     media.delete_media_file("/media/products/never-existed.jpg")
+
+
+def test_delete_media_file_removes_a_video_and_its_poster(tmp_path: Path, monkeypatch) -> None:
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    video_path = videos_dir / "abc.mp4"
+    poster_path = videos_dir / "abc.jpg"
+    video_path.write_bytes(b"fake video")
+    poster_path.write_bytes(b"fake poster")
+    monkeypatch.setattr(media, "get_settings", lambda: _settings(tmp_path))
+
+    media.delete_media_file("/media/videos/abc.mp4")
+
+    assert not video_path.exists()
+    assert not poster_path.exists()
+
+
+def test_delete_media_file_handles_urls_saved_in_production(tmp_path: Path, monkeypatch) -> None:
+    file_path = tmp_path / "abc.jpg"
+    file_path.write_bytes(b"fake image bytes")
+    monkeypatch.setattr(media, "get_settings", lambda: _settings(tmp_path))
+
+    media.delete_media_file("/api/media/abc.jpg")
+
+    assert not file_path.exists()
+
+
+def test_delete_media_file_never_leaves_the_media_folder(tmp_path: Path, monkeypatch) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_text("keep me")
+    monkeypatch.setattr(media, "get_settings", lambda: _settings(media_root))
+
+    media.delete_media_file("/media/../secret.txt")
+
+    assert outside.exists()

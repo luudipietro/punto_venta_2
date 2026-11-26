@@ -1,85 +1,168 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { getPosterUrl, isVideoUrl } from '@/api/client'
+import { HeroVideo, SLIDE_TRANSITION_MS } from '@/components/HeroVideo'
 
 const AUTO_ADVANCE_MS = 5000
+const MIN_VISIBLE_RATIO = 0.5
+// A tall slide stops growing here, so it still fits on the screen whole.
+const MAX_HEIGHT = '80svh'
 
-/** Hand-rolled (no carousel library, consistent with this app's
- * dependency-light philosophy) — a flex track translated via `translateX`,
- * auto-advancing every ~5s, resetting the timer on manual navigation and
- * pausing on hover. Renders nothing with 0 images, a plain static image
- * with 1 (no point animating/showing arrows for a single slide). */
-export function HeroCarousel({ images }: { images: string[] }) {
-  const [index, setIndex] = useState(0)
-  const [paused, setPaused] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+/** Width / height of each slide, filled in as they're measured. A video is
+ * measured by its poster, which has its dimensions and is downloaded anyway. */
+function useSlideRatios(urls: string[]) {
+  const [ratios, setRatios] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    if (images.length <= 1 || paused) return
-    timerRef.current = setInterval(() => {
-      setIndex((current) => (current + 1) % images.length)
-    }, AUTO_ADVANCE_MS)
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
+    for (const url of urls) {
+      const probe = new Image()
+      probe.onload = () => {
+        const ratio = probe.naturalWidth / probe.naturalHeight
+        if (ratio > 0) setRatios((previous) => ({ ...previous, [url]: ratio }))
+      }
+      probe.src = isVideoUrl(url) ? getPosterUrl(url) : url
     }
-  }, [images.length, paused])
+    // `urls` is a new array on every render; only its content matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urls.join('\n')])
 
-  if (images.length === 0) return null
+  return ratios
+}
+
+/** Hand-rolled (no carousel library, consistent with this app's
+ * dependency-light philosophy) — a flex track translated via `translateX`.
+ * The frame takes the shape of the slide being shown, so photos and videos are
+ * seen whole on any screen. A photo stays ~5s (paused while the mouse is over
+ * it); a video plays by itself and the carousel moves on when it ends.
+ * Everything stands still while the carousel is scrolled out of view. Renders
+ * nothing with 0 slides, and no arrows/dots with just 1. */
+export function HeroCarousel({ images }: { images: string[] }) {
+  const [index, setIndex] = useState(0)
+  const [hovered, setHovered] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const [stuckVideo, setStuckVideo] = useState<string | null>(null)
+  const [soundOn, setSoundOn] = useState(false)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const hasSlides = images.length > 0
+  const ratios = useSlideRatios(images)
+
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setVisible(entry.intersectionRatio >= MIN_VISIBLE_RATIO),
+      { threshold: [0, MIN_VISIBLE_RATIO] },
+    )
+    observer.observe(frame)
+    return () => observer.disconnect()
+  }, [hasSlides])
+
+  // Another video starting (a product card's) takes the sound over.
+  useEffect(() => {
+    if (!soundOn) return
+    function onPlay(event: Event) {
+      const video = event.target as HTMLVideoElement
+      if (!video.hasAttribute('data-ambient')) setSoundOn(false)
+    }
+    // Media events don't bubble, hence the capture phase.
+    document.addEventListener('play', onPlay, true)
+    return () => document.removeEventListener('play', onPlay, true)
+  }, [soundOn])
+
+  // A video sets its own pace — unless it can't play, then it's one more photo.
+  const current = images[index]
+  const waitsForVideo = isVideoUrl(current) && current !== stuckVideo
+
+  useEffect(() => {
+    if (images.length <= 1 || !visible || hovered || waitsForVideo) return
+    // `index` restarts the countdown after a manual change.
+    const timer = setTimeout(() => setIndex((index + 1) % images.length), AUTO_ADVANCE_MS)
+    return () => clearTimeout(timer)
+  }, [images.length, visible, hovered, waitsForVideo, index])
+
+  if (!hasSlides) return null
 
   function goTo(next: number) {
     setIndex((next + images.length) % images.length)
   }
 
-  if (images.length === 1) {
-    return (
-      <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
-        <img src={images[0]} alt="" className="aspect-[16/9] w-full rounded-xl object-cover md:aspect-[3/1]" />
-      </div>
-    )
-  }
+  const ratio = ratios[current]
 
   return (
-    <div className="w-full px-4 pt-4 sm:px-6 lg:px-8">
+    <div className="w-full px-3 pt-4 sm:px-6 lg:px-8">
       <div
-        className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl md:aspect-[3/1]"
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
+        ref={frameRef}
+        // The fixed shape only holds until the slide has been measured.
+        className={`group relative mx-auto w-full overflow-hidden rounded-xl transition-[aspect-ratio,max-width] ease-out ${
+          ratio ? '' : 'aspect-[16/9] md:aspect-[3/1]'
+        }`}
+        style={{
+          aspectRatio: ratio,
+          // Limiting the width is what limits the height, keeping the shape.
+          maxWidth: ratio ? `calc(${MAX_HEIGHT} * ${ratio})` : undefined,
+          transitionDuration: `${SLIDE_TRANSITION_MS}ms`,
+        }}
+        // Mouse only: a tap on a phone would otherwise leave it "hovered".
+        onPointerEnter={(event) => event.pointerType === 'mouse' && setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
       >
         <div
-          className="flex h-full transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(-${index * 100}%)` }}
+          className="flex h-full transition-transform ease-out"
+          style={{
+            transform: `translateX(-${index * 100}%)`,
+            transitionDuration: `${SLIDE_TRANSITION_MS}ms`,
+          }}
         >
-          {images.map((url, i) => (
-            <img key={url + i} src={url} alt="" className="h-full w-full shrink-0 object-cover" />
-          ))}
+          {images.map((url, i) =>
+            isVideoUrl(url) ? (
+              <HeroVideo
+                key={url + i}
+                src={url}
+                active={i === index}
+                visible={visible}
+                loop={images.length === 1}
+                label={`Video ${i + 1} de la portada`}
+                soundOn={soundOn}
+                onSoundChange={setSoundOn}
+                onEnded={() => goTo(i + 1)}
+                onStuckChange={(stuck) => setStuckVideo(stuck ? url : null)}
+              />
+            ) : (
+              <img key={url + i} src={url} alt="" className="h-full w-full shrink-0 object-contain" />
+            ),
+          )}
         </div>
 
-        <button
-          onClick={() => goTo(index - 1)}
-          aria-label="Anterior"
-          className="absolute top-1/2 left-3 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60"
-        >
-          <ChevronLeft className="size-5" />
-        </button>
-        <button
-          onClick={() => goTo(index + 1)}
-          aria-label="Siguiente"
-          className="absolute top-1/2 right-3 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60"
-        >
-          <ChevronRight className="size-5" />
-        </button>
-
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-          {images.map((url, i) => (
+        {images.length > 1 && (
+          <>
             <button
-              key={url + i}
-              onClick={() => goTo(i)}
-              aria-label={`Ir a la imagen ${i + 1}`}
-              className={`size-2 rounded-full transition-colors ${
-                i === index ? 'bg-white' : 'bg-white/50'
-              }`}
-            />
-          ))}
-        </div>
+              onClick={() => goTo(index - 1)}
+              aria-label="Anterior"
+              className="absolute top-1/2 left-3 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <button
+              onClick={() => goTo(index + 1)}
+              aria-label="Siguiente"
+              className="absolute top-1/2 right-3 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-black/60"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+              {images.map((url, i) => (
+                <button
+                  key={url + i}
+                  onClick={() => goTo(i)}
+                  aria-label={`Ir al elemento ${i + 1}`}
+                  className={`size-2 rounded-full transition-colors ${
+                    i === index ? 'bg-white' : 'bg-white/50'
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

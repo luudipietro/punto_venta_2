@@ -148,7 +148,7 @@ export function HomePage() {
           selectedCategory={selectedCategory}
           onCategoryChange={setSelectedCategory}
         />
-        <main className="w-80/100 mx-auto px-0 py-10 sm:px-0 lg:px-0">
+        <main className="mx-auto w-full px-3 py-10 sm:w-80/100 sm:px-0">
           {isLoading && (
             <p className="py-16 text-center text-sm text-muted-foreground">Cargando productos...</p>
           )}

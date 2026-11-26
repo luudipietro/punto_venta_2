@@ -6,13 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { uploadProductImage } from '@/api/product'
+import { brandSettingsApi } from '@/api/brandSettings'
+import { uploadMedia, uploadProductImage } from '@/api/product'
 import { useBrandSettings, useUpdateBrandSettings } from '@/hooks/useBrandSettings'
 import { cssColorToHex, fromApiColorSet, toApiColorSet } from '@/lib/color'
 import { brandConfig, type BrandColorSet } from '@/theme/brand.config'
 import { LogoCropDialog } from '@/modules/settings/LogoCropDialog'
+import { MediaThumb } from '@/components/MediaThumb'
 import { getMediaUrl } from '@/lib/media'
-import { HERO_COMPRESS_OPTIONS } from '@/lib/image'
 
 type ColorToken = keyof BrandColorSet
 
@@ -59,7 +60,7 @@ export function BrandSettingsPage() {
   const [heroImages, setHeroImages] = useState<string[]>([])
   const [socialLinks, setSocialLinks] = useState<Record<string, string>>({})
   const [uploading, setUploading] = useState(false)
-  const [uploadingHero, setUploadingHero] = useState(false)
+  const [uploadingHero, setUploadingHero] = useState<'image' | 'video' | null>(null)
   const [lightColors, setLightColors] = useState<BrandColorSet | null>(null)
   const [darkColors, setDarkColors] = useState<BrandColorSet | null>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
@@ -105,14 +106,14 @@ export function BrandSettingsPage() {
   // aspect ratio by nature, a fixed crop target would fight against that.
   async function handleHeroImageFile(file: File | undefined) {
     if (!file) return
-    setUploadingHero(true)
+    setUploadingHero(file.type.startsWith('video/') ? 'video' : 'image')
     try {
-      const url = await uploadProductImage(file, HERO_COMPRESS_OPTIONS)
+      const url = await uploadMedia(file, { forHero: true })
       setHeroImages((prev) => [...prev, url])
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo subir la imagen')
+      toast.error(error instanceof Error ? error.message : 'No se pudo subir el archivo')
     } finally {
-      setUploadingHero(false)
+      setUploadingHero(null)
     }
   }
 
@@ -127,7 +128,14 @@ export function BrandSettingsPage() {
   }
 
   function removeHeroImage(index: number) {
+    const url = heroImages[index]
     setHeroImages((prev) => prev.filter((_, i) => i !== index))
+    // A saved one is deleted by the backend once this change is saved. One that
+    // was never saved has to be deleted now — nothing else will ever know of it.
+    // Best-effort: a failed cleanup is nothing the admin needs to act on.
+    if (!settings?.hero_images?.includes(url)) {
+      brandSettingsApi.discardUpload(url).catch(() => {})
+    }
   }
 
   async function handleSave() {
@@ -235,25 +243,22 @@ export function BrandSettingsPage() {
       </Card>
 
       <Card className="mt-4 max-w-md">
-        <CardContent className="grid gap-3">
+        <CardContent className="grid grid-cols-1 gap-3">
           <div>
-            <Label>Imágenes del carrusel (home del catálogo online)</Label>
+            <Label>Imágenes y videos del carrusel (home del catálogo online)</Label>
             <p className="text-xs text-muted-foreground">
-              Se muestran en orden, cambiando automáticamente cada 5 segundos.
+              Se muestran en orden. Las imágenes cambian cada 5 segundos; los videos (hasta 2
+              minutos y 150 MB) se reproducen solos en alta calidad, arrancan sin sonido (el
+              cliente puede activarlo) y se pasa al siguiente cuando terminan. El carrusel toma
+              la forma de cada foto o video: conviene que sean horizontales, todos con la misma
+              proporción, y los videos cortos. Recordá tocar "Guardar".
             </p>
           </div>
           {heroImages.length > 0 && (
-            <ul className="grid gap-2">
+            <ul className="grid grid-cols-1 gap-2">
               {heroImages.map((url, index) => (
                 <li key={url} className="flex items-center gap-2 rounded-md border p-2">
-                  <img
-                    src={getMediaUrl(url)}
-                    alt=""
-                    className="h-12 w-20 shrink-0 rounded object-cover"
-                    onError={(event) => {
-                      event.currentTarget.style.visibility = 'hidden'
-                    }}
-                  />
+                  <MediaThumb url={url} className="h-12 w-20 shrink-0 rounded" />
                   <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                     {url.split('/').pop()}
                   </span>
@@ -280,7 +285,7 @@ export function BrandSettingsPage() {
                     variant="ghost"
                     size="icon"
                     className="shrink-0 text-destructive hover:text-destructive"
-                    aria-label="Quitar imagen"
+                    aria-label="Quitar del carrusel"
                     onClick={() => removeHeroImage(index)}
                   >
                     <X className="size-4" />
@@ -291,14 +296,20 @@ export function BrandSettingsPage() {
           )}
           <Input
             type="file"
-            accept="image/*"
-            disabled={uploadingHero}
+            accept="image/*,video/*"
+            disabled={uploadingHero !== null}
             onChange={(event) => {
               handleHeroImageFile(event.target.files?.[0])
               event.target.value = ''
             }}
           />
-          {uploadingHero && <p className="text-xs text-muted-foreground">Subiendo imagen...</p>}
+          {uploadingHero && (
+            <p className="text-xs text-muted-foreground">
+              {uploadingHero === 'video'
+                ? 'Subiendo y procesando video... puede tardar un par de minutos.'
+                : 'Subiendo imagen...'}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -319,7 +330,9 @@ export function BrandSettingsPage() {
 
       <Button
         onClick={handleSave}
-        disabled={updateMutation.isPending || uploading || uploadingHero || !companyName.trim()}
+        disabled={
+          updateMutation.isPending || uploading || uploadingHero !== null || !companyName.trim()
+        }
         className="mt-4 w-fit"
       >
         Guardar

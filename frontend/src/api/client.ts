@@ -70,6 +70,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T
 }
 
+// Answered by Nginx itself (an HTML page, not our JSON), mostly for videos.
+const UPLOAD_PROXY_ERRORS: Record<number, string> = {
+  413: 'El archivo es demasiado grande para el servidor',
+  504: 'El servidor tardó demasiado en procesar el archivo',
+}
+
 /** Uploads a file as multipart/form-data — unlike `request()`, this must not
  * set a Content-Type header itself, since the browser needs to add the
  * multipart boundary when it serializes the FormData body. */
@@ -88,7 +94,8 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new ApiError(await parseErrorMessage(response), response.status)
+    const message = UPLOAD_PROXY_ERRORS[response.status] ?? (await parseErrorMessage(response))
+    throw new ApiError(message, response.status)
   }
   return (await response.json()) as T
 }

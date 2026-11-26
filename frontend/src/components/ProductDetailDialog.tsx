@@ -13,7 +13,8 @@ import { useBranches } from '@/hooks/useBranches'
 import { useColors } from '@/hooks/useColors'
 import { useSizes } from '@/hooks/useSizes'
 import { formatCurrency } from '@/lib/format'
-import { getMediaUrl } from '@/lib/media'
+import { MediaThumb } from '@/components/MediaThumb'
+import { getMediaUrl, getPosterUrl, isVideoUrl } from '@/lib/media'
 import { useAuthStore } from '@/stores/authStore'
 
 interface Props {
@@ -21,7 +22,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
 }
 
-/** Read-only product "card": every photo (cover + gallery, with arrows) and
+/** Read-only product "card": every photo and video (cover + gallery, with arrows) and
  * all the product's data, without going through the edit form. Shared by the
  * sale picker, the product list and the stock list. */
 export function ProductDetailDialog({ productId, onOpenChange }: Props) {
@@ -78,23 +79,33 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <div className="relative aspect-square w-full overflow-hidden rounded-md border bg-muted">
-                {photos.length > 0 ? (
+                {photos.length === 0 ? (
+                  <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
+                    Sin imagen
+                  </div>
+                ) : isVideoUrl(photos[shownIndex]) ? (
+                  <video
+                    key={photos[shownIndex]}
+                    src={photos[shownIndex]}
+                    poster={getPosterUrl(photos[shownIndex])}
+                    controls
+                    playsInline
+                    preload="none"
+                    className="size-full bg-black object-contain"
+                  />
+                ) : (
                   <img
                     key={photos[shownIndex]}
                     src={photos[shownIndex]}
                     alt={product.name}
                     className="size-full animate-in fade-in object-contain duration-300"
                   />
-                ) : (
-                  <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
-                    Sin imagen
-                  </div>
                 )}
                 {photos.length > 1 && (
                   <>
                     <button
                       type="button"
-                      aria-label="Foto anterior"
+                      aria-label="Anterior"
                       onClick={() => step(-1)}
                       className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-background/80 p-1.5 shadow hover:bg-background"
                     >
@@ -102,7 +113,7 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
                     </button>
                     <button
                       type="button"
-                      aria-label="Foto siguiente"
+                      aria-label="Siguiente"
                       onClick={() => step(1)}
                       className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-background/80 p-1.5 shadow hover:bg-background"
                     >
@@ -122,7 +133,7 @@ export function ProductDetailDialog({ productId, onOpenChange }: Props) {
                         i === shownIndex ? 'border-primary' : 'border-transparent'
                       }`}
                     >
-                      <img src={url} alt="" className="size-full object-cover" />
+                      <MediaThumb url={url} className="size-full" />
                     </button>
                   ))}
                 </div>

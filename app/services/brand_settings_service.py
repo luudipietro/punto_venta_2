@@ -19,6 +19,15 @@ class BrandSettingsService:
     async def get(self) -> BrandSettings:
         return await self._repository.get() or _DEFAULT
 
+    async def discard_upload(self, url: str) -> None:
+        """Deletes a file uploaded for the carousel and removed before ever
+        being saved — `update` never sees it, so it would stay on disk forever.
+        A no-op if the saved settings still use it."""
+        current = await self._repository.get()
+        if current and url in [current.logo_url, *(current.hero_images or [])]:
+            return
+        delete_media_file(url)
+
     async def update(
         self,
         company_name: str,

@@ -486,7 +486,8 @@ API. The original domain model is now fully covered.
   `Product.image_url` remains the single "cover" image shown everywhere (stock table, cart,
   sale/purchase/exchange history) — a separate `ProductImage` entity (`app/domain/product_image.py`,
   table `product_images`, endpoints nested under `/products/{id}/images`) holds an *additional*
-  gallery of photos for a future e-commerce frontend, managed by `ProductImageService`
+  gallery of photos **and videos** shown on the storefront (see Videos in the catalog), managed by
+  `ProductImageService`
   (existence-checks the product, not a generic `CrudService` since every operation needs the owning
   `product_id`, not a bare entity id). Uploading a file to get a URL (`POST /uploads/images`,
   `app/routes/upload_route.py`, saves under `Settings.media_root` and serves it back via a
@@ -498,7 +499,7 @@ API. The original domain model is now fully covered.
   frontend asset like the default `/brand/logo.svg`, or a file already missing) is called from
   `ProductService.update` (when `image_url` actually changes, comparing against the pre-update row),
   `ProductService.delete`, `ProductImageService.remove_image`, and `BrandSettingsService.update`
-  (logo replacement). Found as a real, already-in-effect problem during a hosting capacity review,
+  (logo replacement and removed hero files) / `.discard_upload`. Found as a real, already-in-effect problem during a hosting capacity review,
   not a hypothetical: nothing anywhere ever deleted the physical file on a replace/remove/delete —
   in this project's own dev `media/products/` folder, 12 of 15 files on disk were already orphaned
   (unreferenced by any product) purely from routine testing. Not urgent at typical volumes (disk math
@@ -1114,7 +1115,7 @@ now, which is strictly simpler to build/own than an external platform integratio
   the extra configuration a single online branch would require isn't worth it. A product with zero
   stock anywhere still appears (`in_stock: false`) rather than being hidden, so the storefront can
   still advertise it with a "Consultar disponibilidad" wording instead of "Pedir por WhatsApp".
-  `StorefrontProductRead.gallery_urls` (each product's extra `ProductImage` photos, beyond the cover
+  `StorefrontProductRead.gallery_urls` (each product's extra `ProductImage` photos/videos, beyond the cover
   `image_url`) rides along in the same list response — no separate per-product endpoint — for the
   product page's thumbnail strip (see below).
 - **WhatsApp number**: `BrandSettings.whatsapp_number` (nullable `str`, digits only, no `+` —
@@ -1123,17 +1124,16 @@ now, which is strictly simpler to build/own than an external platform integratio
   logo/company-name/colors rather than inventing a separate settings concept. `GET /brand-settings`
   already had no auth dependency (see BrandSettings above), so the storefront reads it the same way
   the admin login page reads the logo — no new public endpoint needed for this.
-- **Hero carousel images**: `BrandSettings.hero_images` (nullable `list[str]`, a plain JSON array
-  of media URLs — same "presentation data" shape/reasoning as `colors`) is admin-managed from a new
-  section in `BrandSettingsPage.tsx`: upload (reusing `uploadProductImage()`, no crop step — unlike
-  the logo, hero banners are wide/arbitrary aspect ratio by nature), reorder (up/down buttons
-  swapping array positions), remove, all built as local array state and saved together on
-  "Guardar" — same pattern the color editors already use. `BrandSettingsService.update` diffs the
-  previous vs. new list and `delete_media_file()`s anything removed, same cleanup convention as the
-  logo replacement. `storefront/src/components/HeroCarousel.tsx` (hand-rolled, no carousel library)
-  renders them on the home page: a `flex` track translated via `translateX`, auto-advancing every
-  5s (`setInterval`, reset on manual navigation, paused on hover), with prev/next arrows and dot
-  indicators; renders nothing with zero images, a single static `<img>` with exactly one.
+- **Hero carousel**: `BrandSettings.hero_images` (nullable `list[str]`, a plain JSON array of
+  media URLs — photos and videos despite the name; same "presentation data" shape/reasoning as
+  `colors`) is admin-managed from a section in `BrandSettingsPage.tsx`: upload (via
+  `uploadMedia(file, { forHero: true })`, no crop step), reorder (up/down buttons swapping array
+  positions), remove, all built as local array state and saved together on "Guardar" — same pattern
+  the color editors already use. `BrandSettingsService.update` diffs the previous vs. new list and
+  `delete_media_file()`s anything removed. `storefront/src/components/HeroCarousel.tsx`
+  (hand-rolled, no carousel library) renders them on the home page as a `flex` track translated via
+  `translateX`, with prev/next arrows and dots (only with 2+ slides; nothing at all with zero).
+  How slides advance, size themselves and play is described under **Videos in the catalog**.
 - **Branding parity, without pulling in the admin's theme system**: `storefront/src/theme/
   useBrandTheme.ts` re-implements just the CSS-custom-property application half of the admin's
   `ThemeProvider.tsx`/`applyTheme` (same 14 tokens, same "DB override wins token-by-token over the
@@ -1190,12 +1190,15 @@ now, which is strictly simpler to build/own than an external platform integratio
   `lib/whatsapp.ts`'s `buildCartWhatsAppUrl` includes the same discount line(s) and the real
   (discounted) total in the prefilled message.
 - **Product page layout** (`pages/ProductPage.tsx`, replacing the deleted `ProductDetailDialog.tsx`
-  modal): two columns (stacks on mobile) — large image + a thumbnail strip built from
-  `[image_url, ...gallery_urls]` (click to swap the main image) on the left; category eyebrow,
+  modal): two columns (stacks on mobile) — large photo/video viewer + a thumbnail strip built from
+  `[image_url, ...gallery_urls]` (click to swap the main one) on the left; category eyebrow,
   name, price/"Consultar precio", `description` rendered with `whitespace-pre-wrap` (so an admin's
   multi-line/dashed description reads like a spec list, no separate "specs" field needed), the
   variant-chip picker, a quantity stepper, and "Agregar al carrito" on the right. Adding to cart
-  calls `cartUiStore.open()` (opens the sidebar) instead of closing a dialog.
+  calls `cartUiStore.open()` (opens the sidebar) instead of closing a dialog. Below `md` everything
+  (viewer, thumbnails, text, button) shares the same `px-3` side margin and the button is full
+  width — don't center the text column with `mx-auto`: it then shrinks to its content, so short and
+  long product names got visibly different margins.
 - **Hiding a product, or just its price, from the storefront**: `Product.hidden_from_storefront`/
   `Product.price_hidden_from_storefront` (both `bool`, default `False` — see `app/domain/
   product.py`) are storefront-only display toggles, irrelevant to the POS itself (a hidden or
@@ -1231,7 +1234,8 @@ now, which is strictly simpler to build/own than an external platform integratio
   promotional banner isn't useful once the customer is already looking for something specific — and
   moved the section divider to sit right after the hero rather than right after the category chips,
   so the chips read as part of the products section below the line instead of belonging with the
-  hero above it.
+  hero above it. **On phones the side margin is `px-3`** (home grid, category chips, hero, product
+  page) — the user asked for bigger cards; wider margins apply from `sm` up.
 - **Gotcha: restarting the storefront's Vite dev server after adding a dependency mid-session.**
   Installing `react-router-dom` while `npm run dev` was already running left Vite's dependency
   pre-bundle cache (`node_modules/.vite`) stale, producing a duplicate-React runtime error
@@ -1258,7 +1262,7 @@ now, which is strictly simpler to build/own than an external platform integratio
   sets `<link rel="icon">` (with a `type` derived from the extension) and `document.title` from
   `BrandSettings.logo_url`/`company_name`; the static `index.html` ones remain until settings load.
 - **Product card (admin)**: `frontend/src/components/ProductDetailDialog.tsx` — read-only dialog with
-  cover + gallery (arrows/thumbnails), price, category/brand, description, storefront flags, cost
+  cover + gallery photos/videos (arrows/thumbnails, `MediaThumb`), price, category/brand, description, storefront flags, cost
   (admin only) and per-branch/variant stock. Opened by clicking the image/name in `ProductsPage` and
   `StockPage` (grid and list), and by a small "i" button on `ProductPicker` cards (the card click
   itself adds to cart, so it needs its own trigger; `stopPropagation` on pointerdown too because
@@ -1273,8 +1277,66 @@ now, which is strictly simpler to build/own than an external platform integratio
   over the already-loaded list — the endpoint still returns everything), and back-navigation
   restoration: visible count + `scrollY` are saved to `sessionStorage` on unmount and restored only on
   a history POP with the same filters. `ProductPage`'s back button uses `navigate(-1)` when there's
-  history. Product photos use `components/ImageViewer.tsx` (sliding track, side arrows, <-/-> keys,
+  history. Product photos and videos use `components/ImageViewer.tsx` (sliding track, side arrows, <-/-> keys,
   touch swipe) synced with the thumbnail strip.
+
+## Videos in the catalog
+
+The product gallery and the hero carousel accept videos through the same file inputs as photos.
+**No schema change**: a video is just another URL in `product_images.url` /
+`brand_settings.hero_images`, recognized by its `.mp4` extension (`isVideoUrl()` in both frontends),
+with its poster at the same path ending in `.jpg` (`getPosterUrl()`). The product **cover**
+(`Product.image_url`) stays image-only — the POS, cart, receipts and price tags all render it as a
+picture.
+
+- `POST /uploads/videos` (**admin-only**, unlike `/uploads/images`) accepts mp4/mov/webm/3gp up to
+  150MB and 2 minutes, and **always re-encodes** (`app/core/video.py`) to H.264/AAC MP4,
+  `faststart`, metadata (incl. phone GPS) stripped, saved under `media/videos/`. ffmpeg is the
+  binary bundled in the **`imageio-ffmpeg`** dependency — nothing to install on the host or in the
+  Dockerfile.
+- Two qualities (`?quality=`): `standard` (default, product videos: 1280px longest side, CRF 26,
+  ≤30fps) and `high` (**the hero** — the user asked for no visible quality loss there: 1920px,
+  CRF 18, ≤60fps, 192k audio, capped at 12 Mbps). `uploadMedia(file, { forHero: true })` picks it.
+  `high` encodes noticeably slower, so a long hero video on a small VPS is the likeliest to hit the
+  conversion timeout.
+- A video with no audio track is saved as `<uuid>-silent.mp4`; the storefront hero hides its sound
+  button for those (`hasSound()`), since browsers have no reliable way to ask.
+- A hero file removed **before ever being saved** is deleted through
+  `POST /brand-settings/discard-upload` (admin; no-op for anything the saved settings use) — the
+  settings `PUT` only deletes what was saved before. Still orphaned: an upload where the page is
+  left without saving or removing it.
+- Keep two things when touching the conversion: it runs via `subprocess.run` in
+  `asyncio.to_thread` (asyncio subprocesses fail under Uvicorn `--reload` on Windows), and the
+  input demuxer is forced from the declared content type with `-protocol_whitelist file`, so a
+  playlist disguised as a video can't make ffmpeg read server files.
+- One conversion at a time (semaphore); the request blocks until it finishes. The size limit lives
+  in three places that must agree: `upload_route.py`, `frontend/src/api/product.ts`, and Nginx
+  (`frontend/nginx.conf` **and** the host Nginx, see Production deployment), which also needs the
+  300s read timeout.
+- `delete_media_file()` removes a video's poster along with it. It also now resolves the
+  `/api/media/...` form production stores — before this, replacing/removing media in production
+  never deleted the file.
+- The **hero autoplays** its videos (`components/HeroVideo.tsx`) as ambient slides: muted until the
+  customer taps the sound button (unmuting must happen inside the tap for phones; another video
+  starting mutes the hero again), no native controls (the user rejected tap-to-play there — native
+  controls and black bars didn't feel like part of the carousel). It plays only while its slide is
+  current **and** ≥50% of the carousel is on screen (resuming after a scroll), the carousel
+  advances on `ended` instead of the 5s timer, and the timer also stands still off-screen. If
+  autoplay is refused (iOS low power mode) or the file fails, the slide falls back to the 5s timer.
+- **The hero frame takes the aspect ratio of the current slide** (`useSlideRatios` in
+  `HeroCarousel`, videos measured by their poster), so photos and videos are never cropped on any
+  screen. A tall slide is capped at `80svh` by limiting the width; slides of different shapes
+  change the carousel's height as they rotate.
+- Everywhere else playback is **tap-to-play** (`components/VideoPlayer.tsx`, used by `ImageViewer`
+  and `ProductCard`): `preload="none"` so only the poster downloads, one video at a time (the
+  hero's `data-ambient` video is exempt), stops when its slide is left, and pauses when scrolled
+  off-screen.
+- A grid card whose gallery has a video plays its **first** video in place: only the round button
+  plays (`smallButton`), the rest of the picture and the text open the product. That's why the card
+  is an `<article>` with separate picture/text links rather than one wrapping `<Link>`. Its picture
+  is the cover, else a gallery photo, else the video's poster.
+- iPhone Safari needs HTTP Range support to play video; Starlette's `StaticFiles` provides it
+  (covered by a test). Not handled: HDR phone footage isn't tone-mapped and may look washed out.
 
 ## Database
 
@@ -1393,7 +1455,7 @@ frontend/src/
     products/       # ProductsPage.tsx — list/grid view toggle, image_url cover field + thumbnail,
                      # optional category/brand ("Sin categoría"/"Sin marca" sentinel in the Select),
                      # file upload (uploadProductImage) or manual URL for the cover; ProductGallery.tsx
-                     # (extra photos, only enabled once the product has an id — see ProductImage above).
+                     # (extra photos and videos, only enabled once the product has an id — see ProductImage).
                      # Search by name + sortable Nombre/Categoría/Marca/Costo/Precio column headers
                      # (SortableHead, shared with StockPage.tsx below), all client-side over the
                      # already-loaded product list, mirroring the pattern StockPage had first.
@@ -1605,6 +1667,12 @@ pattern below — a third client repeats it identically.
   TLS + routes by `server_name`; each container stack only ever exposes a host-only port) is what
   makes adding a client purely additive — never touches an existing client's Nginx block or
   containers.
+- **Video uploads need their own Nginx location** (since v1.5.0), both in `frontend/nginx.conf`
+  (already in the repo) and in the **host** Nginx, in the 443 `server` block of each client's admin
+  domain (the storefront domain doesn't need it): `location = /api/uploads/videos` with
+  `client_max_body_size 160M;`, `proxy_read_timeout 300s;` and the same `proxy_pass`/headers as
+  `location /`. Without it a video upload fails with a 413. Videos live in the `pos_media` volume,
+  so they also grow every daily backup (30 kept) — watch `df -h`.
 - **`.env.prod`** (per client, gitignored, `chmod 600`) — `POSTGRES_USER`/`POSTGRES_PASSWORD`/
   `POSTGRES_DB`, `SECRET_KEY`, `SERVER_IP`, `DOMAIN`, `FRONTEND_PORT`. **`POSTGRES_PASSWORD` and
   `SECRET_KEY` must be unique per client** — reusing either across instances would mean one
@@ -1641,6 +1709,10 @@ pattern below — a third client repeats it identically.
   migration failure aborts the container's startup `&&` chain, so the site stays down until
   fixed — this is why the pre-migration backup matters). None of this propagates automatically
   across clients — repeat the same `git pull` + rebuild in every client's own directory.
+- **Releases**: work on a branch, merge to `main` through a GitHub PR, then put an annotated tag
+  `vX.Y.Z` on `main` (latest: `v1.5.0`, videos in the catalog — no migration, but it adds the
+  `imageio-ffmpeg` dependency and needs the Nginx location above). `docs/` is gitignored, so
+  `docs/NUEVO_CLIENTE_VPS.md` only exists on the developer's machine.
 - **SSH access**: key-only (`PasswordAuthentication no`, `PermitRootLogin no`), non-standard port
   (set at VPS provisioning time). Each person/device should have its **own** keypair appended to
   `~/.ssh/authorized_keys` (never copy one private key across machines) so a lost device's access

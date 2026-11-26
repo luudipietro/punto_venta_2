@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
 from app.core.auth import require_admin
 from app.domain.brand_settings import BrandSettings
-from app.schemas.brand_settings_schema import BrandSettingsRead, BrandSettingsUpdate
+from app.schemas.brand_settings_schema import (
+    BrandSettingsRead,
+    BrandSettingsUpdate,
+    DiscardUploadRequest,
+)
 from app.services.brand_settings_service import BrandSettingsService, get_brand_settings_service
 
 router = APIRouter(prefix="/brand-settings", tags=["Brand Settings"])
@@ -29,3 +33,15 @@ async def update_brand_settings(
         payload.hero_images,
         payload.social_links,
     )
+
+
+@router.post(
+    "/discard-upload",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_admin)],
+)
+async def discard_upload(
+    payload: DiscardUploadRequest,
+    service: BrandSettingsService = Depends(get_brand_settings_service),
+) -> None:
+    await service.discard_upload(payload.url)

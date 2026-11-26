@@ -37,4 +37,6 @@ export interface BrandSettings {
 export const brandSettingsApi = {
   get: () => apiClient.get<BrandSettings>('/brand-settings'),
   update: (payload: BrandSettings) => apiClient.put<BrandSettings>('/brand-settings', payload),
+  /** Deletes a carousel file that was removed before ever being saved. */
+  discardUpload: (url: string) => apiClient.post<void>('/brand-settings/discard-upload', { url }),
 }
