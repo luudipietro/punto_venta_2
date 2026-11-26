@@ -1,17 +1,41 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { isVideoUrl } from '@/api/client'
+import { getPosterUrl, isVideoUrl } from '@/api/client'
 import { HeroVideo, SLIDE_TRANSITION_MS } from '@/components/HeroVideo'
 
 const AUTO_ADVANCE_MS = 5000
 const MIN_VISIBLE_RATIO = 0.5
+// A tall slide stops growing here, so it still fits on the screen whole.
+const MAX_HEIGHT = '80svh'
+
+/** Width / height of each slide, filled in as they're measured. A video is
+ * measured by its poster, which has its dimensions and is downloaded anyway. */
+function useSlideRatios(urls: string[]) {
+  const [ratios, setRatios] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    for (const url of urls) {
+      const probe = new Image()
+      probe.onload = () => {
+        const ratio = probe.naturalWidth / probe.naturalHeight
+        if (ratio > 0) setRatios((previous) => ({ ...previous, [url]: ratio }))
+      }
+      probe.src = isVideoUrl(url) ? getPosterUrl(url) : url
+    }
+    // `urls` is a new array on every render; only its content matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urls.join('\n')])
+
+  return ratios
+}
 
 /** Hand-rolled (no carousel library, consistent with this app's
  * dependency-light philosophy) — a flex track translated via `translateX`.
- * A photo stays ~5s (paused while the mouse is over it); a video plays by
- * itself and the carousel moves on when it ends. Everything stands still while
- * the carousel is scrolled out of view. Renders nothing with 0 slides, and no
- * arrows/dots with just 1. */
+ * The frame takes the shape of the slide being shown, so photos and videos are
+ * seen whole on any screen. A photo stays ~5s (paused while the mouse is over
+ * it); a video plays by itself and the carousel moves on when it ends.
+ * Everything stands still while the carousel is scrolled out of view. Renders
+ * nothing with 0 slides, and no arrows/dots with just 1. */
 export function HeroCarousel({ images }: { images: string[] }) {
   const [index, setIndex] = useState(0)
   const [hovered, setHovered] = useState(false)
@@ -20,6 +44,7 @@ export function HeroCarousel({ images }: { images: string[] }) {
   const [soundOn, setSoundOn] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const hasSlides = images.length > 0
+  const ratios = useSlideRatios(images)
 
   useEffect(() => {
     const frame = frameRef.current
@@ -61,11 +86,22 @@ export function HeroCarousel({ images }: { images: string[] }) {
     setIndex((next + images.length) % images.length)
   }
 
+  const ratio = ratios[current]
+
   return (
     <div className="w-full px-3 pt-4 sm:px-6 lg:px-8">
       <div
         ref={frameRef}
-        className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl md:aspect-[3/1]"
+        // The fixed shape only holds until the slide has been measured.
+        className={`group relative mx-auto w-full overflow-hidden rounded-xl transition-[aspect-ratio,max-width] ease-out ${
+          ratio ? '' : 'aspect-[16/9] md:aspect-[3/1]'
+        }`}
+        style={{
+          aspectRatio: ratio,
+          // Limiting the width is what limits the height, keeping the shape.
+          maxWidth: ratio ? `calc(${MAX_HEIGHT} * ${ratio})` : undefined,
+          transitionDuration: `${SLIDE_TRANSITION_MS}ms`,
+        }}
         // Mouse only: a tap on a phone would otherwise leave it "hovered".
         onPointerEnter={(event) => event.pointerType === 'mouse' && setHovered(true)}
         onPointerLeave={() => setHovered(false)}
@@ -92,7 +128,7 @@ export function HeroCarousel({ images }: { images: string[] }) {
                 onStuckChange={(stuck) => setStuckVideo(stuck ? url : null)}
               />
             ) : (
-              <img key={url + i} src={url} alt="" className="h-full w-full shrink-0 object-cover" />
+              <img key={url + i} src={url} alt="" className="h-full w-full shrink-0 object-contain" />
             ),
           )}
         </div>

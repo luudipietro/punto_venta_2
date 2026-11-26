@@ -1314,11 +1314,15 @@ picture.
   never deleted the file.
 - The **hero autoplays** its videos (`components/HeroVideo.tsx`) as ambient slides: muted until the
   customer taps the sound button (unmuting must happen inside the tap for phones; another video
-  starting mutes the hero again), no native controls, `object-cover` like the photos (the user rejected tap-to-play there — native controls
-  and black bars didn't feel like part of the carousel). It plays only while its slide is current
-  **and** ≥50% of the carousel is on screen (resuming after a scroll), the carousel advances on
-  `ended` instead of the 5s timer, and the timer also stands still off-screen. If autoplay is
-  refused (iOS low power mode) or the file fails, the slide falls back to the 5s timer.
+  starting mutes the hero again), no native controls (the user rejected tap-to-play there — native
+  controls and black bars didn't feel like part of the carousel). It plays only while its slide is
+  current **and** ≥50% of the carousel is on screen (resuming after a scroll), the carousel
+  advances on `ended` instead of the 5s timer, and the timer also stands still off-screen. If
+  autoplay is refused (iOS low power mode) or the file fails, the slide falls back to the 5s timer.
+- **The hero frame takes the aspect ratio of the current slide** (`useSlideRatios` in
+  `HeroCarousel`, videos measured by their poster), so photos and videos are never cropped on any
+  screen. A tall slide is capped at `80svh` by limiting the width; slides of different shapes
+  change the carousel's height as they rotate.
 - Everywhere else playback is **tap-to-play** (`components/VideoPlayer.tsx`, used by `ImageViewer`
   and `ProductCard`): `preload="none"` so only the poster downloads, one video at a time (the
   hero's `data-ambient` video is exempt), stops when its slide is left, and pauses when scrolled

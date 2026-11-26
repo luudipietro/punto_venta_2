@@ -249,8 +249,9 @@ export function BrandSettingsPage() {
             <p className="text-xs text-muted-foreground">
               Se muestran en orden. Las imágenes cambian cada 5 segundos; los videos (hasta 2
               minutos y 150 MB) se reproducen solos en alta calidad, arrancan sin sonido (el
-              cliente puede activarlo) y se pasa al siguiente cuando terminan. Conviene que sean
-              horizontales y cortos. Recordá tocar "Guardar".
+              cliente puede activarlo) y se pasa al siguiente cuando terminan. El carrusel toma
+              la forma de cada foto o video: conviene que sean horizontales, todos con la misma
+              proporción, y los videos cortos. Recordá tocar "Guardar".
             </p>
           </div>
           {heroImages.length > 0 && (

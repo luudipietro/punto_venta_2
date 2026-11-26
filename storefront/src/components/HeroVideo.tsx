@@ -21,7 +21,7 @@ interface Props {
   onStuckChange: (stuck: boolean) => void
 }
 
-/** A video that behaves like any other hero slide: no controls, cropped to fill
+/** A video that behaves like any other hero slide: no controls, shown whole
  * like the photos. It starts muted (browsers only autoplay muted video), with a
  * button to turn the sound on. It plays while it's both the current slide and
  * on screen, resuming where it was after a scroll. */
@@ -114,7 +114,7 @@ export function HeroVideo({
         onError={() => onStuckChange(true)}
         // The way to start it where autoplay is refused.
         onClick={play}
-        className="size-full object-cover"
+        className="size-full object-contain"
       />
       {hasSound(src) && (
         <button
