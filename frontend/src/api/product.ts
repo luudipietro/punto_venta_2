@@ -1,6 +1,10 @@
 import { createCrudApi } from '@/api/base'
 import { API_BASE_URL, apiClient } from '@/api/client'
-import { compressImageForUpload, type CompressOptions } from '@/lib/image'
+import {
+  compressImageForUpload,
+  HERO_COMPRESS_OPTIONS,
+  type CompressOptions,
+} from '@/lib/image'
 
 export interface Product {
   id: number
@@ -48,11 +52,16 @@ export async function uploadProductImage(
 const MAX_VIDEO_BYTES = 150 * 1024 * 1024
 
 /** For the places that accept photos and videos alike (product gallery, hero
- * carousel). A video is sent as-is: the backend converts and compresses it. */
-export async function uploadMedia(file: File, compressOptions?: CompressOptions): Promise<string> {
-  if (!file.type.startsWith('video/')) return uploadProductImage(file, compressOptions)
+ * carousel). A video is sent as-is: the backend converts and compresses it.
+ * `forHero` keeps much more quality, for either kind — the hero is shown across
+ * the whole screen and there are only a few of them. */
+export async function uploadMedia(file: File, { forHero = false } = {}): Promise<string> {
+  if (!file.type.startsWith('video/')) {
+    return uploadProductImage(file, forHero ? HERO_COMPRESS_OPTIONS : undefined)
+  }
   if (file.size > MAX_VIDEO_BYTES) throw new Error('El video debe pesar 150MB o menos')
-  const { url } = await apiClient.upload<{ url: string }>('/uploads/videos', file)
+  const path = forHero ? '/uploads/videos?quality=high' : '/uploads/videos'
+  const { url } = await apiClient.upload<{ url: string }>(path, file)
   return `${API_BASE_URL}${url}`
 }
 

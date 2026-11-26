@@ -32,6 +32,10 @@ class BrandSettingsUpdate(BaseModel):
     social_links: dict[str, str] | None = None
 
 
+class DiscardUploadRequest(BaseModel):
+    url: str
+
+
 class BrandSettingsRead(BaseModel):
     company_name: str
     logo_url: str

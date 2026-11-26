@@ -1,16 +1,18 @@
 """Converts an uploaded video into the single format the storefront serves.
 
 Phones record large files in codecs not every browser can play (an iPhone
-defaults to HEVC `.mov`), so every upload is re-encoded to H.264/AAC MP4,
-capped at 1280px on its longest side, with a JPEG poster next to it. The
-ffmpeg binary comes from the `imageio-ffmpeg` package, so there is nothing to
-install on the host or in the Docker image.
+defaults to HEVC `.mov`), so every upload is re-encoded to H.264/AAC MP4 at the
+requested `VideoQuality`, with a JPEG poster next to it. The ffmpeg binary
+comes from the `imageio-ffmpeg` package, so there is nothing to install on the
+host or in the Docker image.
 """
 
 import asyncio
 import logging
 import re
 import subprocess
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import imageio_ffmpeg
@@ -20,7 +22,6 @@ from app.core.exceptions import BusinessRuleViolationError
 logger = logging.getLogger(__name__)
 
 MAX_DURATION_SECONDS = 120
-MAX_DIMENSION = 1280
 # Kept under the 300s proxy timeout Nginx is configured with for this upload.
 TIMEOUT_SECONDS = 280
 
@@ -34,9 +35,40 @@ _UNREADABLE_MESSAGE = "No se pudo procesar el video. Probá con otro archivo."
 _TOO_LONG_MESSAGE = f"El video puede durar {MAX_DURATION_SECONDS // 60} minutos como máximo"
 
 
-async def process_video(source: Path, destination: Path, poster: Path, demuxer: str) -> None:
+class VideoQuality(StrEnum):
+    # Product videos: many per shop, shown small.
+    STANDARD = "standard"
+    # The hero banner: one or two per shop, shown across the whole screen.
+    HIGH = "high"
+
+
+@dataclass(frozen=True)
+class _Encoding:
+    max_dimension: int  # longest side; smaller videos are never upscaled
+    crf: int  # lower is better; 18 is visually indistinguishable from the source
+    preset: str
+    max_fps: int
+    audio_bitrate: str
+    # Ceiling so a busy clip can't get arbitrarily heavy for a customer's phone.
+    max_kbps: int | None = None
+
+
+_ENCODINGS = {
+    VideoQuality.STANDARD: _Encoding(1280, 26, "veryfast", 30, "96k"),
+    VideoQuality.HIGH: _Encoding(1920, 18, "fast", 60, "192k", max_kbps=12_000),
+}
+
+
+async def process_video(
+    source: Path,
+    destination: Path,
+    poster: Path,
+    demuxer: str,
+    quality: VideoQuality = VideoQuality.STANDARD,
+) -> bool:
     """Writes `destination` (MP4) and `poster` (JPEG) from `source`, or raises
-    `BusinessRuleViolationError` leaving neither behind.
+    `BusinessRuleViolationError` leaving neither behind. Returns whether the
+    result has an audio track.
 
     `demuxer` forces how ffmpeg reads the input instead of letting it guess
     from the content: a crafted "video" that is really a playlist could
@@ -45,10 +77,20 @@ async def process_video(source: Path, destination: Path, poster: Path, demuxer: 
     async with _conversion_slot:
         # A thread rather than an asyncio subprocess: the latter isn't
         # supported by the event loop Uvicorn uses on Windows with --reload.
-        await asyncio.to_thread(_convert, source, destination, poster, demuxer)
+        return await asyncio.to_thread(
+            _convert, source, destination, poster, demuxer, _ENCODINGS[quality]
+        )
 
 
-def _convert(source: Path, destination: Path, poster: Path, demuxer: str) -> None:
+def _convert(
+    source: Path, destination: Path, poster: Path, demuxer: str, encoding: _Encoding
+) -> bool:
+    max_side = encoding.max_dimension
+    bitrate_cap = (
+        ["-maxrate", f"{encoding.max_kbps}k", "-bufsize", f"{2 * encoding.max_kbps}k"]
+        if encoding.max_kbps
+        else []
+    )
     input_args = ["-protocol_whitelist", "file", "-f", demuxer, "-i", str(source)]
     try:
         _ensure_valid_input(input_args)
@@ -61,15 +103,16 @@ def _convert(source: Path, destination: Path, poster: Path, demuxer: str) -> Non
                 "-map", "0:V:0",
                 "-map", "0:a:0?",
                 "-vf",
-                f"scale=w='min({MAX_DIMENSION},iw)':h='min({MAX_DIMENSION},ih)'"
+                f"scale=w='min({max_side},iw)':h='min({max_side},ih)'"
                 ":force_original_aspect_ratio=decrease:force_divisible_by=2",
-                "-fpsmax", "30",
+                "-fpsmax", str(encoding.max_fps),
                 "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "26",
+                "-preset", encoding.preset,
+                "-crf", str(encoding.crf),
+                *bitrate_cap,
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
-                "-b:a", "96k",
+                "-b:a", encoding.audio_bitrate,
                 "-ac", "2",
                 # Phone videos carry GPS coordinates; none of it gets published.
                 "-map_metadata", "-1",
@@ -78,15 +121,17 @@ def _convert(source: Path, destination: Path, poster: Path, demuxer: str) -> Non
                 str(destination),
             ]
         )  # fmt: skip
-        duration = _read_duration(_run(["-i", str(destination)]).stderr)
+        result_info = _run(["-i", str(destination)]).stderr
+        duration = _read_duration(result_info)
         if duration is not None and duration > MAX_DURATION_SECONDS + 0.5:
             raise BusinessRuleViolationError(_TOO_LONG_MESSAGE)
         # `thumbnail` picks a representative frame among the first second, so a
         # fade-in doesn't leave a black poster.
         _run_checked(
-            ["-i", str(destination), "-vf", "thumbnail=30", "-frames:v", "1", "-q:v", "3",
+            ["-i", str(destination), "-vf", "thumbnail=30", "-frames:v", "1", "-q:v", "2",
              str(poster)]
         )  # fmt: skip
+        return "Audio:" in result_info
     except BaseException:
         destination.unlink(missing_ok=True)
         poster.unlink(missing_ok=True)

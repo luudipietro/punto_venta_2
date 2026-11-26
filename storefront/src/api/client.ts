@@ -32,6 +32,11 @@ export function getPosterUrl(videoUrl: string): string {
   return videoUrl.replace(/\.mp4$/i, '.jpg')
 }
 
+/** The backend marks a video without an audio track with this suffix. */
+export function hasSound(videoUrl: string): boolean {
+  return !/-silent\.mp4$/i.test(videoUrl)
+}
+
 export class ApiError extends Error {
   status: number
 

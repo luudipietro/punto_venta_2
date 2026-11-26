@@ -17,6 +17,7 @@ export function HeroCarousel({ images }: { images: string[] }) {
   const [hovered, setHovered] = useState(false)
   const [visible, setVisible] = useState(false)
   const [stuckVideo, setStuckVideo] = useState<string | null>(null)
+  const [soundOn, setSoundOn] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const hasSlides = images.length > 0
 
@@ -30,6 +31,18 @@ export function HeroCarousel({ images }: { images: string[] }) {
     observer.observe(frame)
     return () => observer.disconnect()
   }, [hasSlides])
+
+  // Another video starting (a product card's) takes the sound over.
+  useEffect(() => {
+    if (!soundOn) return
+    function onPlay(event: Event) {
+      const video = event.target as HTMLVideoElement
+      if (!video.hasAttribute('data-ambient')) setSoundOn(false)
+    }
+    // Media events don't bubble, hence the capture phase.
+    document.addEventListener('play', onPlay, true)
+    return () => document.removeEventListener('play', onPlay, true)
+  }, [soundOn])
 
   // A video sets its own pace — unless it can't play, then it's one more photo.
   const current = images[index]
@@ -73,6 +86,8 @@ export function HeroCarousel({ images }: { images: string[] }) {
                 visible={visible}
                 loop={images.length === 1}
                 label={`Video ${i + 1} de la portada`}
+                soundOn={soundOn}
+                onSoundChange={setSoundOn}
                 onEnded={() => goTo(i + 1)}
                 onStuckChange={(stuck) => setStuckVideo(stuck ? url : null)}
               />

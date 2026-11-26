@@ -1286,10 +1286,21 @@ with its poster at the same path ending in `.jpg` (`getPosterUrl()`). The produc
 picture.
 
 - `POST /uploads/videos` (**admin-only**, unlike `/uploads/images`) accepts mp4/mov/webm/3gp up to
-  150MB and 2 minutes, and **always re-encodes** (`app/core/video.py`) to H.264/AAC MP4, longest
-  side 1280px, ≤30fps, `faststart`, metadata (incl. phone GPS) stripped, saved under
-  `media/videos/`. ffmpeg is the binary bundled in the **`imageio-ffmpeg`** dependency — nothing to
-  install on the host or in the Dockerfile.
+  150MB and 2 minutes, and **always re-encodes** (`app/core/video.py`) to H.264/AAC MP4,
+  `faststart`, metadata (incl. phone GPS) stripped, saved under `media/videos/`. ffmpeg is the
+  binary bundled in the **`imageio-ffmpeg`** dependency — nothing to install on the host or in the
+  Dockerfile.
+- Two qualities (`?quality=`): `standard` (default, product videos: 1280px longest side, CRF 26,
+  ≤30fps) and `high` (**the hero** — the user asked for no visible quality loss there: 1920px,
+  CRF 18, ≤60fps, 192k audio, capped at 12 Mbps). `uploadMedia(file, { forHero: true })` picks it.
+  `high` encodes noticeably slower, so a long hero video on a small VPS is the likeliest to hit the
+  conversion timeout.
+- A video with no audio track is saved as `<uuid>-silent.mp4`; the storefront hero hides its sound
+  button for those (`hasSound()`), since browsers have no reliable way to ask.
+- A hero file removed **before ever being saved** is deleted through
+  `POST /brand-settings/discard-upload` (admin; no-op for anything the saved settings use) — the
+  settings `PUT` only deletes what was saved before. Still orphaned: an upload where the page is
+  left without saving or removing it.
 - Keep two things when touching the conversion: it runs via `subprocess.run` in
   `asyncio.to_thread` (asyncio subprocesses fail under Uvicorn `--reload` on Windows), and the
   input demuxer is forced from the declared content type with `-protocol_whitelist file`, so a
@@ -1301,8 +1312,9 @@ picture.
 - `delete_media_file()` removes a video's poster along with it. It also now resolves the
   `/api/media/...` form production stores — before this, replacing/removing media in production
   never deleted the file.
-- The **hero autoplays** its videos (`components/HeroVideo.tsx`) as ambient slides: muted, no
-  controls, `object-cover` like the photos (the user rejected tap-to-play there — native controls
+- The **hero autoplays** its videos (`components/HeroVideo.tsx`) as ambient slides: muted until the
+  customer taps the sound button (unmuting must happen inside the tap for phones; another video
+  starting mutes the hero again), no native controls, `object-cover` like the photos (the user rejected tap-to-play there — native controls
   and black bars didn't feel like part of the carousel). It plays only while its slide is current
   **and** ≥50% of the carousel is on screen (resuming after a scroll), the carousel advances on
   `ended` instead of the 5s timer, and the timer also stands still off-screen. If autoplay is

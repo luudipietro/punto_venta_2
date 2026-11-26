@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { brandSettingsApi } from '@/api/brandSettings'
 import { uploadMedia, uploadProductImage } from '@/api/product'
 import { useBrandSettings, useUpdateBrandSettings } from '@/hooks/useBrandSettings'
 import { cssColorToHex, fromApiColorSet, toApiColorSet } from '@/lib/color'
@@ -13,7 +14,6 @@ import { brandConfig, type BrandColorSet } from '@/theme/brand.config'
 import { LogoCropDialog } from '@/modules/settings/LogoCropDialog'
 import { MediaThumb } from '@/components/MediaThumb'
 import { getMediaUrl } from '@/lib/media'
-import { HERO_COMPRESS_OPTIONS } from '@/lib/image'
 
 type ColorToken = keyof BrandColorSet
 
@@ -108,7 +108,7 @@ export function BrandSettingsPage() {
     if (!file) return
     setUploadingHero(file.type.startsWith('video/') ? 'video' : 'image')
     try {
-      const url = await uploadMedia(file, HERO_COMPRESS_OPTIONS)
+      const url = await uploadMedia(file, { forHero: true })
       setHeroImages((prev) => [...prev, url])
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo subir el archivo')
@@ -128,7 +128,14 @@ export function BrandSettingsPage() {
   }
 
   function removeHeroImage(index: number) {
+    const url = heroImages[index]
     setHeroImages((prev) => prev.filter((_, i) => i !== index))
+    // A saved one is deleted by the backend once this change is saved. One that
+    // was never saved has to be deleted now — nothing else will ever know of it.
+    // Best-effort: a failed cleanup is nothing the admin needs to act on.
+    if (!settings?.hero_images?.includes(url)) {
+      brandSettingsApi.discardUpload(url).catch(() => {})
+    }
   }
 
   async function handleSave() {
@@ -241,8 +248,9 @@ export function BrandSettingsPage() {
             <Label>Imágenes y videos del carrusel (home del catálogo online)</Label>
             <p className="text-xs text-muted-foreground">
               Se muestran en orden. Las imágenes cambian cada 5 segundos; los videos (hasta 2
-              minutos y 150 MB) se reproducen solos, sin sonido, y se pasa al siguiente cuando
-              terminan. Conviene que sean horizontales. Recordá tocar "Guardar".
+              minutos y 150 MB) se reproducen solos en alta calidad, arrancan sin sonido (el
+              cliente puede activarlo) y se pasa al siguiente cuando terminan. Conviene que sean
+              horizontales y cortos. Recordá tocar "Guardar".
             </p>
           </div>
           {heroImages.length > 0 && (

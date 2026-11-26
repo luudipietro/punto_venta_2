@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.core.auth import require_admin
 from app.core.config import get_settings
-from app.core.video import process_video
+from app.core.video import VideoQuality, process_video
 
 router = APIRouter(prefix="/uploads", tags=["Uploads"])
 
@@ -67,9 +67,12 @@ async def upload_image(file: UploadFile) -> UploadRead:
     # admin-managed) use videos, and converting one is expensive.
     dependencies=[Depends(require_admin)],
 )
-async def upload_video(file: UploadFile) -> UploadRead:
+async def upload_video(
+    file: UploadFile, quality: VideoQuality = VideoQuality.STANDARD
+) -> UploadRead:
     """Stores a video converted to MP4, plus a poster with the same name and a
-    `.jpg` extension — the frontends derive the poster URL from that."""
+    `.jpg` extension — the frontends derive the poster URL from that. A video
+    without sound gets a `-silent` name, so no sound button is offered for it."""
     demuxer = VIDEO_DEMUXERS.get(file.content_type or "")
     if demuxer is None:
         raise HTTPException(
@@ -93,6 +96,13 @@ async def upload_video(file: UploadFile) -> UploadRead:
                     )
                 target.write(chunk)
 
-        await process_video(source, videos_dir / f"{name}.mp4", videos_dir / f"{name}.jpg", demuxer)
+        has_audio = await process_video(
+            source, videos_dir / f"{name}.mp4", videos_dir / f"{name}.jpg", demuxer, quality
+        )
+
+    if not has_audio:
+        for extension in (".mp4", ".jpg"):
+            (videos_dir / f"{name}{extension}").rename(videos_dir / f"{name}-silent{extension}")
+        name = f"{name}-silent"
 
     return UploadRead(url=f"{settings.media_url}/videos/{name}.mp4")

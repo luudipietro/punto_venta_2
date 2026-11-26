@@ -1,6 +1,9 @@
+import logging
 from urllib.parse import urlparse
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def delete_media_file(url: str | None) -> None:
@@ -38,5 +41,6 @@ def delete_media_file(url: str | None) -> None:
     for target in targets:
         try:
             target.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            # e.g. Windows refusing to delete a file that is being streamed.
+            logger.warning("Could not delete media file %s: %s", target, exc)
