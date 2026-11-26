@@ -93,7 +93,9 @@ export function ProductPage() {
   }
 
   return (
-    <div className="w-full mx-auto py-6  lg:px-20">
+    // Same side padding on phones as the home grid, shared by everything on the
+    // page.
+    <div className="mx-auto w-full px-3 py-6 sm:px-6 lg:px-20">
       <button
         onClick={goBack}
         className="mb-4 inline-flex items-center gap-1 text-xl text-muted-foreground hover:text-foreground"
@@ -102,9 +104,9 @@ export function ProductPage() {
         Volver al catálogo
       </button>
 
-      <div className="grid gap-8 md:grid-cols-2 pt-10">
-        <div>
-          <div className="aspect-square w-80/100 mx-auto overflow-hidden rounded-xl border border-border bg-muted">
+      <div className="grid grid-cols-1 gap-8 pt-10 md:grid-cols-2">
+        <div className="min-w-0">
+          <div className="mx-auto aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted md:w-80/100">
             <ImageViewer
               images={gallery}
               index={Math.min(imageIndex, Math.max(gallery.length - 1, 0))}
@@ -141,7 +143,7 @@ export function ProductPage() {
           )}
         </div>
 
-        <div className='flex flex-col mx-auto lg:mx-0'>
+        <div className="flex min-w-0 flex-col">
           {product.category_name && (
             <p className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
               {product.category_name}
@@ -212,7 +214,7 @@ export function ProductPage() {
           <button
             onClick={handleAddToCart}
             disabled={!canAdd}
-            className="flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50 md:max-w-xs"
           >
             <ShoppingCart className="size-5" />
             {product.in_stock ? 'Agregar al carrito' : 'Sin stock'}
