@@ -240,8 +240,9 @@ export function BrandSettingsPage() {
           <div>
             <Label>Imágenes y videos del carrusel (home del catálogo online)</Label>
             <p className="text-xs text-muted-foreground">
-              Se muestran en orden, cambiando automáticamente cada 5 segundos. Los videos (hasta 2
-              minutos y 150 MB) se reproducen cuando el cliente los toca. Recordá tocar "Guardar".
+              Se muestran en orden. Las imágenes cambian cada 5 segundos; los videos (hasta 2
+              minutos y 150 MB) se reproducen solos, sin sonido, y se pasa al siguiente cuando
+              terminan. Conviene que sean horizontales. Recordá tocar "Guardar".
             </p>
           </div>
           {heroImages.length > 0 && (

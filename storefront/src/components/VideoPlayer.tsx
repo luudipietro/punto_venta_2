@@ -48,7 +48,8 @@ export function VideoPlayer({
   }
 
   function handlePlay() {
-    document.querySelectorAll('video').forEach((video) => {
+    // The hero's muted background video (`data-ambient`) is left alone.
+    document.querySelectorAll<HTMLVideoElement>('video:not([data-ambient])').forEach((video) => {
       if (video !== videoRef.current) video.pause()
     })
     changeStarted(true)
